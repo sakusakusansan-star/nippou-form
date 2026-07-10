@@ -337,7 +337,7 @@
 
       <div class="progress-box">
         <div class="progress-text" style="margin-bottom:10px;">
-          <span>🎯 目標 <input type="number" id="target" min="0" inputmode="numeric"
+          <span>🎯 MNP目標 <input type="number" id="target" min="0" inputmode="numeric"
             style="width:64px; padding:6px 8px; text-align:center; display:inline-block; font-size:15px;"> 件</span>
           <span>前日まで <input type="number" id="prev" min="0" inputmode="numeric" placeholder="0"
             style="width:64px; padding:6px 8px; text-align:center; display:inline-block; font-size:15px;"> 件</span>
@@ -348,7 +348,7 @@
         </div>
         <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
         <div style="font-size:11px; color:var(--muted2); margin-top:8px; line-height:1.5;">
-          複数日イベントの場合は「前日まで」に昨日までの獲得数を入力。今日の獲得は自動で加算されます
+          複数日イベントの場合は「前日まで」に昨日までのMNP獲得数を入力。今日のMNPは自動で加算されます（進捗は獲得内のMNPのみでカウントします）
         </div>
       </div>
     </div>
@@ -478,9 +478,10 @@
   function refreshProgress() {
     var target = parseInt(document.getElementById('target').value, 10) || 0;
     var prev = parseInt(document.getElementById('prev').value, 10) || 0;
-    var cumulative = prev + sum(gainCounts);
+    var mnp = gainCounts['MNP'] || 0;
+    var cumulative = prev + mnp;
     var pct = target > 0 ? Math.round(cumulative / target * 100) : 0;
-    document.getElementById('progress-detail').textContent = '通算 ' + cumulative + '件';
+    document.getElementById('progress-detail').textContent = 'MNP通算 ' + cumulative + '件';
     document.getElementById('progress-label').innerHTML = '<b>' + pct + '</b>%';
     var fill = document.getElementById('progress-fill');
     fill.style.width = Math.min(100, pct) + '%';
