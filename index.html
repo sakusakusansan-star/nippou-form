@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>日報 | Sieg 業務ポータル</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<style>
+  :root {
+    --bg: #0B1220;
+    --bg2: #101B30;
+    --panel: rgba(255,255,255,0.04);
+    --line: rgba(255,255,255,0.10);
+    --amber: #E8A33D;
+    --amber2: #F4C56B;
+    --text: #EDEFF3;
+    --muted: #8A93A6;
+    --muted2: #5C6579;
+    --ink: #0B1220;
+    --green: #4CD97B;
+    --red: #E86A5A;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: 'Zen Kaku Gothic New', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 100% -10%, rgba(232,163,61,0.10), transparent 60%),
+      linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 22px 14px 40px;
+  }
+  .wrap { max-width: 520px; margin: 0 auto; }
+
+  .head {
+    padding: 4px 4px 16px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 18px;
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--amber);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .eyebrow::before {
+    content: '';
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 8px var(--amber);
+    animation: blink 1.6s infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:.25;} }
+  .title { font-size: 24px; font-weight: 800; letter-spacing: 1px; margin-top: 6px; }
+  .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .back-link {
+    display: inline-block;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: underline;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px 16px;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+  }
+  .field { margin-bottom: 22px; }
+  .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .label .total {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--amber2);
+  }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    padding: 10px 16px;
+    min-height: 44px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform .08s ease;
+  }
+  .chip.on {
+    background: var(--amber);
+    color: var(--ink);
+    border-color: var(--amber);
+  }
+  .chip:active { transform: scale(0.96); }
+
+  textarea, input[type="date"], input[type="text"], input[type="number"] {
+    width: 100%;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 16px;
+    font-family: inherit;
+    padding: 12px;
+  }
+  textarea { min-height: 120px; resize: vertical; }
+  textarea:focus, input:focus { outline: none; border-color: var(--amber); }
+  input[type="date"] { color-scheme: dark; }
+
+  /* ─── カウンター行 ─── */
+  .counters { display: flex; flex-direction: column; gap: 8px; }
+  .counter {
+    display: grid;
+    grid-template-columns: 1fr 48px 44px 48px;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px 6px 6px 14px;
+  }
+  .counter.active { border-color: rgba(232,163,61,0.5); }
+  .counter-label { font-size: 14px; font-weight: 700; }
+  .counter-btn {
+    width: 48px;
+    height: 44px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform .08s ease;
+  }
+  .counter-btn:active { background: var(--amber); color: var(--ink); transform: scale(0.94); }
+  .counter-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    color: var(--text);
+  }
+  .counter-num.nonzero { color: var(--amber2); }
+
+  /* ─── 進捗バー ─── */
+  .progress-box {
+    margin-top: 12px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .progress-text {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .progress-text b { color: var(--amber2); font-size: 14px; }
+  .progress-track {
+    height: 10px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--amber), var(--amber2));
+    border-radius: 5px;
+    transition: width .25s ease;
+  }
+  .progress-fill.done { background: linear-gradient(90deg, #2FA75C, var(--green)); }
+
+  .submit-btn {
+    width: 100%;
+    padding: 16px;
+    min-height: 54px;
+    background: var(--amber);
+    border: none;
+    border-radius: 12px;
+    color: var(--ink);
+    font-size: 17px;
+    font-weight: 800;
+    font-family: inherit;
+    letter-spacing: 2px;
+    cursor: pointer;
+    transition: transform .08s ease;
+  }
+  .submit-btn:active { transform: scale(0.98); }
+  .submit-btn:disabled { opacity: .5; }
+
+  .msg {
+    margin-top: 14px;
+    padding: 12px;
+    border-radius: 10px;
+    font-size: 14px;
+    text-align: center;
+    display: none;
+    line-height: 1.6;
+  }
+  .msg.ok { display: block; background: rgba(76,217,123,0.10); border: 1px solid rgba(76,217,123,0.4); color: var(--green); }
+  .msg.ng { display: block; background: rgba(232,106,90,0.10); border: 1px solid rgba(232,106,90,0.4); color: var(--red); }
+
+  .foot {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 2px;
+    color: var(--muted2);
+    text-align: center;
+    margin-top: 22px;
+  }
+
+  /* ═══ 完成画面 ═══ */
+  .done-screen { display: none; }
+  .done-screen.show { display: block; }
+  .done-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--green);
+    background: rgba(76,217,123,0.10);
+    border: 1px solid rgba(76,217,123,0.4);
+    border-radius: 8px;
+    padding: 6px 12px;
+    margin-bottom: 14px;
+  }
+  .done-badge .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--green);
+  }
+  .copy-box {
+    background: rgba(0,0,0,0.20);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 13px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text);
+    margin-bottom: 14px;
+    font-family: 'Zen Kaku Gothic New', 'Noto Sans JP', sans-serif;
+  }
+  .copy-btn {
+    width: 100%;
+    padding: 16px;
+    min-height: 54px;
+    background: var(--amber);
+    border: none;
+    border-radius: 12px;
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 800;
+    font-family: inherit;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: transform .08s ease, background .15s ease;
+  }
+  .copy-btn:active { transform: scale(0.98); }
+  .copy-btn.copied { background: var(--green); }
+  .again-link {
+    display: block;
+    text-align: center;
+    margin-top: 16px;
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: underline;
+    padding: 8px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .eyebrow::before { animation: none; }
+    .progress-fill { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div class="eyebrow">SIEG OPS BOARD</div>
+    <div class="title">日報</div>
+    <div class="sub">入力すると日報テキストが完成します。Teamsにコピーして貼り付けてください</div>
+    <a class="back-link" href="https://sakusakusansan-star.github.io/sieg-portal/">‹ ポータルに戻る</a>
+  </div>
+
+  <div class="card" id="form-card">
+
+    <div class="field">
+      <div class="label">DATE / 入店日</div>
+      <input type="date" id="date">
+    </div>
+
+    <div class="field">
+      <div class="label">NAME / 名前</div>
+      <div class="chips" id="name-chips"></div>
+    </div>
+
+    <div class="field">
+      <div class="label">CARRIER / キャリア</div>
+      <div class="chips" id="carrier-chips"></div>
+    </div>
+
+    <div class="field">
+      <div class="label">PLACE / 稼働場所</div>
+      <input type="text" id="place" placeholder="例：ソフトバンク下通">
+    </div>
+
+    <div class="field">
+      <div class="label">APPROACH / アプローチ <span class="total" id="approach-total">0件</span></div>
+      <div class="counters" id="approach-counters"></div>
+    </div>
+
+    <div class="field">
+      <div class="label">RESULTS / 獲得 <span class="total" id="gain-total">0件</span></div>
+      <div class="counters" id="gain-counters"></div>
+
+      <div class="progress-box">
+        <div class="progress-text" style="margin-bottom:10px;">
+          <span>🎯 目標 <input type="number" id="target" min="0" inputmode="numeric"
+            style="width:64px; padding:6px 8px; text-align:center; display:inline-block; font-size:15px;"> 件</span>
+          <span>前日まで <input type="number" id="prev" min="0" inputmode="numeric" placeholder="0"
+            style="width:64px; padding:6px 8px; text-align:center; display:inline-block; font-size:15px;"> 件</span>
+        </div>
+        <div class="progress-text">
+          <span id="progress-detail">通算 0件</span>
+          <span id="progress-label"><b>0</b>%</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+        <div style="font-size:11px; color:var(--muted2); margin-top:8px; line-height:1.5;">
+          複数日イベントの場合は「前日まで」に昨日までの獲得数を入力。今日の獲得は自動で加算されます
+        </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="label">NOTE / 所感</div>
+      <textarea id="note" placeholder="今日良かったこと・課題・明日やることなど"></textarea>
+    </div>
+
+    <button class="submit-btn" id="submit" onclick="post()">日報を作成する</button>
+    <div class="msg" id="msg"></div>
+
+  </div>
+
+  <!-- ═══ 完成画面 ═══ -->
+  <div class="card done-screen" id="done-screen">
+    <div class="done-badge"><span class="dot"></span>日報が完成しました</div>
+    <div class="copy-box" id="copy-box"></div>
+    <button class="copy-btn" id="copy-btn" onclick="copyText()">📋 コピーする</button>
+    <a class="again-link" onclick="resetForm()">‹ もう一件入力する</a>
+  </div>
+
+  <div class="foot">SIEG OPERATIONS PORTAL ★ KUMAMOTO</div>
+
+</div>
+
+<script>
+  // ═══════════════════════════════════════
+  //  設定（ここを編集すれば項目を変えられます）
+  // ═══════════════════════════════════════
+  var NIPPOU_API = 'https://script.google.com/macros/s/AKfycbwEclDIdJiNgdXOmveRvT-BJOVWc6FwyrpxWNrqHs1DB9xgx9Ijuix0qqQ5KyG-XlkF7w/exec';
+
+  var NAMES = ['鈴木', '毛利', '藤本', '山口'];
+  var CARRIERS = ['Softbank', 'docomo', 'au'];
+  var APPROACH_ITEMS = ['キャッチ', '着座'];                    // アプローチの内訳
+  var GAIN_ITEMS = ['MNP', '新規', '固定', '電気', 'カード'];   // 獲得の内訳
+
+  // ═══════════════════════════════════════
+
+  var selName = '';
+  var selCarrier = '';
+  var approachCounts = {};
+  var gainCounts = {};
+
+  // 入店日の初期値：今日
+  (function() {
+    var d = new Date();
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var dd = String(d.getDate()).padStart(2, '0');
+    document.getElementById('date').value = y + '-' + m + '-' + dd;
+  })();
+
+  function buildChips(boxId, list, onPick) {
+    var box = document.getElementById(boxId);
+    list.forEach(function(v) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'chip';
+      b.textContent = v;
+      b.onclick = function() {
+        box.querySelectorAll('.chip').forEach(function(c) { c.classList.remove('on'); });
+        b.classList.add('on');
+        onPick(v);
+      };
+      box.appendChild(b);
+    });
+  }
+  buildChips('name-chips', NAMES, function(v) { selName = v; });
+  buildChips('carrier-chips', CARRIERS, function(v) { selCarrier = v; });
+
+  function buildCounters(boxId, items, counts, onChange) {
+    var box = document.getElementById(boxId);
+    items.forEach(function(label) {
+      counts[label] = 0;
+      var row = document.createElement('div');
+      row.className = 'counter';
+
+      var lab = document.createElement('div');
+      lab.className = 'counter-label';
+      lab.textContent = label;
+
+      var minus = document.createElement('button');
+      minus.type = 'button';
+      minus.className = 'counter-btn';
+      minus.textContent = '−';
+
+      var num = document.createElement('div');
+      num.className = 'counter-num';
+      num.textContent = '0';
+
+      var plus = document.createElement('button');
+      plus.type = 'button';
+      plus.className = 'counter-btn';
+      plus.textContent = '＋';
+
+      function update(delta) {
+        counts[label] = Math.max(0, counts[label] + delta);
+        num.textContent = counts[label];
+        num.classList.toggle('nonzero', counts[label] > 0);
+        row.classList.toggle('active', counts[label] > 0);
+        onChange();
+      }
+      minus.onclick = function() { update(-1); };
+      plus.onclick = function() { update(1); };
+
+      row.appendChild(lab);
+      row.appendChild(minus);
+      row.appendChild(num);
+      row.appendChild(plus);
+      box.appendChild(row);
+    });
+  }
+
+  function sum(counts) {
+    var t = 0;
+    for (var k in counts) t += counts[k];
+    return t;
+  }
+
+  function refreshTotals() {
+    document.getElementById('approach-total').textContent = sum(approachCounts) + '件';
+    document.getElementById('gain-total').textContent = sum(gainCounts) + '件';
+    refreshProgress();
+  }
+
+  function refreshProgress() {
+    var target = parseInt(document.getElementById('target').value, 10) || 0;
+    var prev = parseInt(document.getElementById('prev').value, 10) || 0;
+    var cumulative = prev + sum(gainCounts);
+    var pct = target > 0 ? Math.round(cumulative / target * 100) : 0;
+    document.getElementById('progress-detail').textContent = '通算 ' + cumulative + '件';
+    document.getElementById('progress-label').innerHTML = '<b>' + pct + '</b>%';
+    var fill = document.getElementById('progress-fill');
+    fill.style.width = Math.min(100, pct) + '%';
+    fill.classList.toggle('done', target > 0 && cumulative >= target);
+  }
+
+  buildCounters('approach-counters', APPROACH_ITEMS, approachCounts, refreshTotals);
+  buildCounters('gain-counters', GAIN_ITEMS, gainCounts, refreshTotals);
+  document.getElementById('target').addEventListener('input', refreshProgress);
+  document.getElementById('prev').addEventListener('input', refreshProgress);
+
+  function showMsg(ok, text) {
+    var el = document.getElementById('msg');
+    el.className = 'msg ' + (ok ? 'ok' : 'ng');
+    el.textContent = text;
+  }
+
+  function toBreakdown(counts) {
+    var arr = [];
+    for (var k in counts) arr.push({ label: k, count: counts[k] });
+    return arr;
+  }
+
+  function post() {
+    if (!selName) { showMsg(false, '名前を選んでください'); return; }
+    if (!selCarrier) { showMsg(false, 'キャリアを選んでください'); return; }
+    var place = document.getElementById('place').value.trim();
+    if (!place) { showMsg(false, '稼働場所を入力してください'); return; }
+
+    var btn = document.getElementById('submit');
+    btn.disabled = true;
+    btn.textContent = '作成中…';
+
+    fetch(NIPPOU_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({
+        date: document.getElementById('date').value,
+        name: selName,
+        carrier: selCarrier,
+        place: place,
+        approaches: toBreakdown(approachCounts),
+        gains: toBreakdown(gainCounts),
+        target: parseInt(document.getElementById('target').value, 10) || 0,
+        prev: parseInt(document.getElementById('prev').value, 10) || 0,
+        note: document.getElementById('note').value.trim()
+      })
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (data && data.ok) {
+        showDone(data.text || '');
+      } else {
+        showMsg(false, 'エラー：' + (data && data.error ? data.error : '不明なエラー'));
+        btn.disabled = false;
+        btn.textContent = '日報を作成する';
+      }
+    })
+    .catch(function() {
+      showMsg(false, '通信エラーが発生しました。もう一度お試しください');
+      btn.disabled = false;
+      btn.textContent = '日報を作成する';
+    });
+  }
+
+  function showDone(text) {
+    document.getElementById('copy-box').textContent = text;
+    document.getElementById('form-card').style.display = 'none';
+    document.getElementById('done-screen').classList.add('show');
+    window.scrollTo(0, 0);
+  }
+
+  function copyText() {
+    var text = document.getElementById('copy-box').textContent;
+    var btn = document.getElementById('copy-btn');
+    var done = function() {
+      btn.textContent = '✓ コピーしました';
+      btn.classList.add('copied');
+      setTimeout(function() {
+        btn.textContent = '📋 コピーする';
+        btn.classList.remove('copied');
+      }, 2000);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(function() { fallbackCopy(text, done); });
+    } else {
+      fallbackCopy(text, done);
+    }
+  }
+
+  function fallbackCopy(text, done) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+
+  function resetForm() {
+    selName = ''; selCarrier = '';
+    document.querySelectorAll('#name-chips .chip, #carrier-chips .chip').forEach(function(c) { c.classList.remove('on'); });
+    document.getElementById('place').value = '';
+    document.getElementById('note').value = '';
+    document.getElementById('target').value = '';
+    document.getElementById('prev').value = '';
+    Object.keys(approachCounts).forEach(function(k) { approachCounts[k] = 0; });
+    Object.keys(gainCounts).forEach(function(k) { gainCounts[k] = 0; });
+    document.querySelectorAll('#approach-counters .counter-num, #gain-counters .counter-num').forEach(function(n) {
+      n.textContent = '0'; n.classList.remove('nonzero');
+    });
+    document.querySelectorAll('#approach-counters .counter, #gain-counters .counter').forEach(function(r) {
+      r.classList.remove('active');
+    });
+    refreshTotals();
+    document.getElementById('msg').className = 'msg';
+    var btn = document.getElementById('submit');
+    btn.disabled = false;
+    btn.textContent = '日報を作成する';
+    document.getElementById('done-screen').classList.remove('show');
+    document.getElementById('form-card').style.display = 'block';
+    window.scrollTo(0, 0);
+  }
+</script>
+</body>
+</html>
