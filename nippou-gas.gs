@@ -162,6 +162,47 @@ function sendToDiscord_(copyText, p, meta) {
   }
 }
 
+// ═══ Discord接続テスト ═══
+// GASエディタで関数「checkDiscord」を選んで実行し、実行ログを見る。
+// 日報は記録されず、Discordにテストメッセージが1件だけ投稿される。
+function checkDiscord() {
+  var props = PropertiesService.getScriptProperties();
+  var keys = props.getKeys();
+  Logger.log('登録済みのプロパティ名: ' + (keys.length ? keys.join(', ') : '(ひとつも無し)'));
+
+  var url = props.getProperty('DISCORD_WEBHOOK');
+  if (!url) {
+    Logger.log('❌ DISCORD_WEBHOOK が未設定です。ここが原因です。');
+    Logger.log('   → プロジェクトの設定 → スクリプト プロパティ → プロパティを追加');
+    Logger.log('     名前: DISCORD_WEBHOOK / 値: Discordの受注報告チャンネルのWebhook URL');
+    return;
+  }
+  Logger.log('✅ DISCORD_WEBHOOK は設定済み（先頭30文字: ' + url.slice(0, 30) + '…）');
+
+  try {
+    var res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      muteHttpExceptions: true,
+      payload: JSON.stringify({ content: '✅ 日報システムからの接続テストです' })
+    });
+    var code = res.getResponseCode();
+    Logger.log('HTTPステータス: ' + code);
+    Logger.log('レスポンス本文: ' + (res.getContentText() || '(空 ＝ 正常)'));
+    if (code < 300) {
+      Logger.log('🎉 送信成功。Discordの受注報告チャンネルを確認してください。');
+      Logger.log('   ここで届くのにフォームからは届かない場合は、デプロイが古いのが原因です。');
+    } else if (code === 401 || code === 404) {
+      Logger.log('❌ Webhook URL が無効です（削除済み、または貼り間違い）。作り直してください。');
+    } else {
+      Logger.log('❌ 送信失敗。上のレスポンス本文を確認してください。');
+    }
+  } catch (err) {
+    Logger.log('❌ 例外が発生: ' + err);
+    Logger.log('   「承認が必要」と出た場合は、承認してからもう一度実行してください。');
+  }
+}
+
 function doPost(e) {
   try {
     var p = JSON.parse(e.postData.contents);
