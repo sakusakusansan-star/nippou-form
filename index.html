@@ -240,6 +240,19 @@
     width: 6px; height: 6px; border-radius: 50%;
     background: var(--green);
   }
+  .done-badge.warn {
+    color: var(--amber);
+    background: rgba(232,163,61,0.10);
+    border-color: rgba(232,163,61,0.4);
+  }
+  .done-badge.warn .dot { background: var(--amber); }
+  .done-note {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 14px;
+  }
+  .done-note.warn { color: var(--amber2); }
   .copy-box {
     background: rgba(0,0,0,0.20);
     border: 1px solid var(--line);
@@ -292,7 +305,7 @@
   <div class="head">
     <div class="eyebrow">SIEG OPS BOARD</div>
     <div class="title">日報</div>
-    <div class="sub">入力すると日報テキストが完成します。Teamsにコピーして貼り付けてください</div>
+    <div class="sub">入力して送信すると、Discordの受注報告チャンネルに自動で投稿されます</div>
   </div>
 
   <div class="card" id="form-card">
@@ -356,9 +369,10 @@
 
   <!-- ═══ 完成画面 ═══ -->
   <div class="card done-screen" id="done-screen">
-    <div class="done-badge"><span class="dot"></span>日報が完成しました</div>
+    <div class="done-badge" id="done-badge"><span class="dot"></span><span id="done-badge-text">送信しました</span></div>
+    <div class="done-note" id="done-note"></div>
     <div class="copy-box" id="copy-box"></div>
-    <button class="copy-btn" id="copy-btn" onclick="copyText()">📋 コピーする</button>
+    <button class="copy-btn" id="copy-btn" onclick="copyText()">📋 テキストをコピー</button>
     <a class="again-link" onclick="resetForm()">‹ もう一件入力する</a>
   </div>
 
@@ -524,7 +538,7 @@
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data && data.ok) {
-        showDone(data.text || '');
+        showDone(data.text || '', data.discord);
       } else {
         showMsg(false, 'エラー：' + (data && data.error ? data.error : '不明なエラー'));
         btn.disabled = false;
@@ -538,8 +552,21 @@
     });
   }
 
-  function showDone(text) {
+  function showDone(text, discordOk) {
     document.getElementById('copy-box').textContent = text;
+
+    // discordOk: true=投稿成功 / false=投稿失敗 / null・undefined=Discord未設定
+    var badge = document.getElementById('done-badge');
+    var note = document.getElementById('done-note');
+    var failed = (discordOk !== true);
+    badge.classList.toggle('warn', failed);
+    note.classList.toggle('warn', failed);
+    document.getElementById('done-badge-text').textContent =
+      failed ? '記録しました（Discord未送信）' : 'Discordに送信しました';
+    note.textContent = failed
+      ? 'スプレッドシートには記録済みですが、Discordへの投稿に失敗しました。下のテキストをコピーして受注報告チャンネルに手動で貼り付けてください。'
+      : '受注報告チャンネルに投稿済みです。控えが必要な場合は下のテキストをコピーしてください。';
+
     document.getElementById('form-card').style.display = 'none';
     document.getElementById('done-screen').classList.add('show');
     window.scrollTo(0, 0);
@@ -552,7 +579,7 @@
       btn.textContent = '✓ コピーしました';
       btn.classList.add('copied');
       setTimeout(function() {
-        btn.textContent = '📋 コピーする';
+        btn.textContent = '📋 テキストをコピー';
         btn.classList.remove('copied');
       }, 2000);
     };
