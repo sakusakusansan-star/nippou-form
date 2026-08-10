@@ -80,7 +80,7 @@ function bar_(pct) {
 }
 
 // ═══ Discord送信 ═══
-// スクリプトプロパティ「DISCORD_WEBHOOK」にURLが設定されていれば #受注速報 等へ自動投稿
+// スクリプトプロパティ「DISCORD_WEBHOOK」にURLが設定されていれば #日報 へ自動投稿
 //
 // meta には doPost で算出済みの値を渡す：
 //   { dateStr, pct, cumulative, prev, mnpCount, target, monthly, approachTotal, gainTotal }
@@ -174,7 +174,7 @@ function checkDiscord() {
   if (!url) {
     Logger.log('❌ DISCORD_WEBHOOK が未設定です。ここが原因です。');
     Logger.log('   → プロジェクトの設定 → スクリプト プロパティ → プロパティを追加');
-    Logger.log('     名前: DISCORD_WEBHOOK / 値: Discordの受注報告チャンネルのWebhook URL');
+    Logger.log('     名前: DISCORD_WEBHOOK / 値: Discordの日報チャンネルのWebhook URL');
     return;
   }
   Logger.log('✅ DISCORD_WEBHOOK は設定済み（先頭30文字: ' + url.slice(0, 30) + '…）');
@@ -190,7 +190,7 @@ function checkDiscord() {
     Logger.log('HTTPステータス: ' + code);
     Logger.log('レスポンス本文: ' + (res.getContentText() || '(空 ＝ 正常)'));
     if (code < 300) {
-      Logger.log('🎉 送信成功。Discordの受注報告チャンネルを確認してください。');
+      Logger.log('🎉 送信成功。Discordの日報チャンネルを確認してください。');
       Logger.log('   ここで届くのにフォームからは届かない場合は、デプロイが古いのが原因です。');
     } else if (code === 401 || code === 404) {
       Logger.log('❌ Webhook URL が無効です（削除済み、または貼り間違い）。作り直してください。');

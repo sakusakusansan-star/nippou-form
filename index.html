@@ -305,7 +305,7 @@
   <div class="head">
     <div class="eyebrow">SIEG OPS BOARD</div>
     <div class="title">日報</div>
-    <div class="sub">入力して送信すると、Discordの受注報告チャンネルに自動で投稿されます</div>
+    <div class="sub">入力して送信すると、Discordの日報チャンネルに自動で投稿されます</div>
   </div>
 
   <div class="card" id="form-card">
@@ -564,8 +564,8 @@
     document.getElementById('done-badge-text').textContent =
       failed ? '記録しました（Discord未送信）' : 'Discordに送信しました';
     note.textContent = failed
-      ? 'スプレッドシートには記録済みですが、Discordへの投稿に失敗しました。下のテキストをコピーして受注報告チャンネルに手動で貼り付けてください。'
-      : '受注報告チャンネルに投稿済みです。控えが必要な場合は下のテキストをコピーしてください。';
+      ? 'スプレッドシートには記録済みですが、Discordへの投稿に失敗しました。下のテキストをコピーして日報チャンネルに手動で貼り付けてください。'
+      : '日報チャンネルに投稿済みです。控えが必要な場合は下のテキストをコピーしてください。';
 
     document.getElementById('form-card').style.display = 'none';
     document.getElementById('done-screen').classList.add('show');
