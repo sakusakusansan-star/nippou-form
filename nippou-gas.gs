@@ -177,7 +177,11 @@ function checkDiscord() {
     Logger.log('     名前: DISCORD_WEBHOOK / 値: Discordの日報チャンネルのWebhook URL');
     return;
   }
-  Logger.log('✅ DISCORD_WEBHOOK は設定済み（先頭30文字: ' + url.slice(0, 30) + '…）');
+  // Webhook ID は秘密ではない（トークンは末尾の別セグメント）。
+  // どのチャンネル宛か取り違えたときに気付けるよう、IDだけ出す。
+  var idMatch = String(url).match(/\/webhooks\/(\d+)\//);
+  Logger.log('✅ DISCORD_WEBHOOK は設定済み / Webhook ID: '
+    + (idMatch ? idMatch[1] : '(URLの形式が不正です)'));
 
   try {
     var res = UrlFetchApp.fetch(url, {
