@@ -221,6 +221,58 @@
     margin-top: 22px;
   }
 
+  /* ═══ 確認画面 ═══ */
+  .confirm-screen { display: none; }
+  .confirm-screen.show { display: block; }
+  .confirm-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--amber);
+    background: rgba(232,163,61,0.10);
+    border: 1px solid rgba(232,163,61,0.4);
+    border-radius: 8px;
+    padding: 6px 12px;
+    margin-bottom: 14px;
+  }
+  .confirm-badge .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--amber);
+  }
+  .summary {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 18px;
+  }
+  .summary-row {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    gap: 10px;
+    padding: 11px 13px;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-row .k {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    padding-top: 4px;
+  }
+  .summary-row .v { word-break: break-word; white-space: pre-wrap; }
+  .summary-row .v .sub-v {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .summary-row.empty .v { color: var(--muted2); }
+  .summary-row .v b { color: var(--amber2); font-size: 16px; }
+
   /* ═══ 完成画面 ═══ */
   .done-screen { display: none; }
   .done-screen.show { display: block; }
@@ -362,9 +414,18 @@
       <textarea id="note" placeholder="今日良かったこと・課題・明日やることなど"></textarea>
     </div>
 
-    <button class="submit-btn" id="submit" onclick="post()">日報を作成する</button>
+    <button class="submit-btn" id="submit" onclick="goConfirm()">日報を作成する</button>
     <div class="msg" id="msg"></div>
 
+  </div>
+
+  <!-- ═══ 確認画面 ═══ -->
+  <div class="card confirm-screen" id="confirm-screen">
+    <div class="confirm-badge"><span class="dot"></span>この内容で送信します</div>
+    <div class="summary" id="summary"></div>
+    <button class="submit-btn" id="send-btn" onclick="send()">Discordに送信する</button>
+    <div class="msg" id="confirm-msg"></div>
+    <a class="again-link" onclick="backToForm()">‹ 修正する</a>
   </div>
 
   <!-- ═══ 完成画面 ═══ -->
@@ -498,8 +559,8 @@
   document.getElementById('target').addEventListener('input', refreshProgress);
   document.getElementById('prev').addEventListener('input', refreshProgress);
 
-  function showMsg(ok, text) {
-    var el = document.getElementById('msg');
+  function showMsg(ok, text, id) {
+    var el = document.getElementById(id || 'msg');
     el.className = 'msg ' + (ok ? 'ok' : 'ng');
     el.textContent = text;
   }
@@ -510,45 +571,134 @@
     return arr;
   }
 
-  function post() {
+  // 送信待ちの内容。確認画面で表示したものと、実際に送るものを一致させるため
+  // goConfirm の時点で組み立てて保持し、send はこれをそのまま送る。
+  var pendingPayload = null;
+
+  // 'yyyy-mm-dd' → '8/10（月）'（GAS側の表記に合わせる）
+  function fmtDate(v) {
+    if (!v) return '';
+    var p = v.split('-');
+    var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    if (isNaN(d.getTime())) return '';
+    return (d.getMonth() + 1) + '/' + d.getDate()
+      + '（' + ['日', '月', '火', '水', '木', '金', '土'][d.getDay()] + '）';
+  }
+
+  // [{label,count}] → 'キャッチ6 / 店内2'（0件は省く）
+  function fmtBreakdown(arr) {
+    return arr.filter(function(x) { return x.count > 0; })
+      .map(function(x) { return x.label + x.count; })
+      .join(' / ');
+  }
+
+  function sumBreakdown(arr) {
+    return arr.reduce(function(s, x) { return s + (Number(x.count) || 0); }, 0);
+  }
+
+  function addRow(label, value, subValue) {
+    var row = document.createElement('div');
+    row.className = 'summary-row' + (value ? '' : ' empty');
+    var k = document.createElement('div');
+    k.className = 'k';
+    k.textContent = label;
+    var v = document.createElement('div');
+    v.className = 'v';
+    v.textContent = value || '（未入力）';
+    if (value && subValue) {
+      var sub = document.createElement('span');
+      sub.className = 'sub-v';
+      sub.textContent = subValue;
+      v.appendChild(sub);
+    }
+    row.appendChild(k);
+    row.appendChild(v);
+    document.getElementById('summary').appendChild(row);
+  }
+
+  function goConfirm() {
     if (!selName) { showMsg(false, '名前を選んでください'); return; }
     if (!selCarrier) { showMsg(false, 'キャリアを選んでください'); return; }
     var place = document.getElementById('place').value.trim();
     if (!place) { showMsg(false, '稼働場所を入力してください'); return; }
 
-    var btn = document.getElementById('submit');
+    var approaches = toBreakdown(approachCounts);
+    var gains = toBreakdown(gainCounts);
+    var target = parseInt(document.getElementById('target').value, 10) || 0;
+    var prev = parseInt(document.getElementById('prev').value, 10) || 0;
+    var note = document.getElementById('note').value.trim();
+
+    pendingPayload = {
+      date: document.getElementById('date').value,
+      name: selName,
+      carrier: selCarrier,
+      place: place,
+      approaches: approaches,
+      gains: gains,
+      target: target,
+      prev: prev,
+      note: note
+    };
+
+    var box = document.getElementById('summary');
+    box.innerHTML = '';
+    addRow('DATE', fmtDate(pendingPayload.date));
+    addRow('NAME', selName);
+    addRow('CARRIER', selCarrier);
+    addRow('PLACE', place);
+    addRow('APPROACH', sumBreakdown(approaches) + '件', fmtBreakdown(approaches));
+    addRow('RESULTS', sumBreakdown(gains) + '件', fmtBreakdown(gains));
+    if (target > 0) {
+      var mnp = gainCounts['MNP'] || 0;
+      var cumulative = prev + mnp;
+      addRow('MNP',
+        cumulative + ' / ' + target + '件（' + Math.round(cumulative / target * 100) + '%）',
+        '前日まで ' + prev + '件 ＋ 本日MNP ' + mnp + '件');
+    }
+    addRow('NOTE', note);
+
+    document.getElementById('msg').className = 'msg';
+    document.getElementById('confirm-msg').className = 'msg';
+    document.getElementById('form-card').style.display = 'none';
+    document.getElementById('confirm-screen').classList.add('show');
+    window.scrollTo(0, 0);
+  }
+
+  function backToForm() {
+    document.getElementById('confirm-screen').classList.remove('show');
+    document.getElementById('form-card').style.display = 'block';
+    window.scrollTo(0, 0);
+  }
+
+  function send() {
+    if (!pendingPayload) { backToForm(); return; }
+
+    var btn = document.getElementById('send-btn');
     btn.disabled = true;
-    btn.textContent = '作成中…';
+    btn.textContent = '送信中…';
+
+    var restore = function() {
+      btn.disabled = false;
+      btn.textContent = 'Discordに送信する';
+    };
 
     fetch(NIPPOU_API, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({
-        date: document.getElementById('date').value,
-        name: selName,
-        carrier: selCarrier,
-        place: place,
-        approaches: toBreakdown(approachCounts),
-        gains: toBreakdown(gainCounts),
-        target: parseInt(document.getElementById('target').value, 10) || 0,
-        prev: parseInt(document.getElementById('prev').value, 10) || 0,
-        note: document.getElementById('note').value.trim()
-      })
+      body: JSON.stringify(pendingPayload)
     })
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data && data.ok) {
         showDone(data.text || '', data.discord);
       } else {
-        showMsg(false, 'エラー：' + (data && data.error ? data.error : '不明なエラー'));
-        btn.disabled = false;
-        btn.textContent = '日報を作成する';
+        showMsg(false, 'エラー：' + (data && data.error ? data.error : '不明なエラー'), 'confirm-msg');
+        restore();
       }
     })
     .catch(function() {
-      showMsg(false, '通信エラーが発生しました。もう一度お試しください');
-      btn.disabled = false;
-      btn.textContent = '日報を作成する';
+      showMsg(false, '通信エラーが発生しました。もう一度お試しください', 'confirm-msg');
+      restore();
     });
   }
 
@@ -568,6 +718,7 @@
       : '日報チャンネルに投稿済みです。控えが必要な場合は下のテキストをコピーしてください。';
 
     document.getElementById('form-card').style.display = 'none';
+    document.getElementById('confirm-screen').classList.remove('show');
     document.getElementById('done-screen').classList.add('show');
     window.scrollTo(0, 0);
   }
@@ -617,11 +768,18 @@
       r.classList.remove('active');
     });
     refreshTotals();
+    pendingPayload = null;
     document.getElementById('msg').className = 'msg';
+    document.getElementById('confirm-msg').className = 'msg';
+    document.getElementById('summary').innerHTML = '';
     var btn = document.getElementById('submit');
     btn.disabled = false;
     btn.textContent = '日報を作成する';
+    var sendBtn = document.getElementById('send-btn');
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Discordに送信する';
     document.getElementById('done-screen').classList.remove('show');
+    document.getElementById('confirm-screen').classList.remove('show');
     document.getElementById('form-card').style.display = 'block';
     window.scrollTo(0, 0);
   }
