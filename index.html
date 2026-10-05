@@ -2,23 +2,30 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>日報 | Sieg 業務ポータル</title>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #0B1220;
     --bg2: #101B30;
     --panel: rgba(255,255,255,0.04);
+    --field: rgba(255,255,255,0.03);
     --line: rgba(255,255,255,0.10);
     --amber: #E8A33D;
     --amber2: #F4C56B;
+    --amber-soft: rgba(232,163,61,0.14);
+    --amber-line: rgba(232,163,61,0.45);
     --text: #EDEFF3;
     --muted: #8A93A6;
     --muted2: #5C6579;
     --ink: #0B1220;
     --green: #4CD97B;
     --red: #E86A5A;
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   body {
@@ -26,19 +33,20 @@
     background:
       radial-gradient(1200px 600px at 100% -10%, rgba(232,163,61,0.10), transparent 60%),
       linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+    background-attachment: fixed;
+    background-color: var(--bg);
     color: var(--text);
     min-height: 100vh;
     padding: 22px 14px 40px;
   }
+  body.has-bar { padding-bottom: calc(110px + env(safe-area-inset-bottom)); }
+  button { touch-action: manipulation; }
   .wrap { max-width: 520px; margin: 0 auto; }
 
-  .head {
-    padding: 4px 4px 16px;
-    border-bottom: 1px solid var(--line);
-    margin-bottom: 18px;
-  }
+  /* ─── ヘッダー ─── */
+  .head { padding: 4px 4px 16px; margin-bottom: 14px; }
   .eyebrow {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--mono);
     font-size: 11px;
     letter-spacing: 3px;
     color: var(--amber);
@@ -52,46 +60,84 @@
     animation: blink 1.6s infinite;
   }
   @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:.25;} }
-  .title { font-size: 24px; font-weight: 800; letter-spacing: 1px; margin-top: 6px; }
-  .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .title { font-size: 28px; font-weight: 900; letter-spacing: 2px; margin-top: 6px; }
+  .sub { font-size: 13px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+
+  /* ─── カード ─── */
   .card {
     background: var(--panel);
     border: 1px solid var(--line);
-    border-radius: 14px;
+    border-radius: 16px;
     padding: 18px 16px;
+    margin-bottom: 12px;
     backdrop-filter: blur(6px);
     -webkit-backdrop-filter: blur(6px);
   }
   .field { margin-bottom: 22px; }
+  .field:last-child { margin-bottom: 0; }
+
   .label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--muted);
-    margin-bottom: 8px;
     display: flex;
-    justify-content: space-between;
     align-items: baseline;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .label .jp { font-size: 15px; font-weight: 700; color: var(--text); }
+  .label .en {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: var(--muted2);
+  }
+  .label .req {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--amber);
+    border: 1px solid var(--amber-line);
+    border-radius: 4px;
+    padding: 1px 5px;
+    align-self: center;
   }
   .label .total {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 16px;
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: 18px;
     font-weight: 700;
     color: var(--amber2);
   }
+
+  /* ─── 入力エラー ─── */
+  .field-err {
+    display: none;
+    font-size: 13px;
+    color: var(--red);
+    margin-top: 8px;
+  }
+  .field.invalid .field-err { display: block; }
+  .field.invalid .chip, .field.invalid input { border-color: rgba(232,106,90,0.7); }
+  .field.shake { animation: shake .35s ease; }
+  @keyframes shake {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+  }
+
+  /* ─── チップ ─── */
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip {
-    padding: 10px 16px;
-    min-height: 44px;
-    background: rgba(255,255,255,0.03);
+    padding: 10px 18px;
+    min-height: 46px;
+    background: var(--field);
     border: 1px solid var(--line);
     border-radius: 10px;
     color: var(--text);
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 700;
     font-family: inherit;
     cursor: pointer;
-    transition: transform .08s ease;
+    transition: transform .08s ease, background .15s ease;
   }
   .chip.on {
     background: var(--amber);
@@ -102,7 +148,7 @@
 
   textarea, input[type="date"], input[type="text"], input[type="number"] {
     width: 100%;
-    background: rgba(255,255,255,0.03);
+    background: var(--field);
     border: 1px solid var(--line);
     border-radius: 10px;
     color: var(--text);
@@ -110,63 +156,167 @@
     font-family: inherit;
     padding: 12px;
   }
-  textarea { min-height: 120px; resize: vertical; }
+  textarea { min-height: 120px; resize: vertical; line-height: 1.6; }
   textarea:focus, input:focus { outline: none; border-color: var(--amber); }
-  input[type="date"] { color-scheme: dark; }
+  input[type="date"] { color-scheme: dark; min-height: 48px; }
+  input::placeholder, textarea::placeholder { color: var(--muted2); }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { -moz-appearance: textfield; }
+
+  /* ─── 下書き復元のお知らせ ─── */
+  .notice {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+  .notice.show { display: flex; }
+  .notice.warn { color: var(--amber2); background: var(--amber-soft); border-color: var(--amber-line); }
+  .notice span { flex: 1; }
+  .notice button {
+    flex-shrink: 0;
+    background: none;
+    border: 1px solid currentColor;
+    border-radius: 8px;
+    color: inherit;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
 
   /* ─── カウンター行 ─── */
   .counters { display: flex; flex-direction: column; gap: 8px; }
   .counter {
     display: grid;
-    grid-template-columns: 1fr 48px 44px 48px;
+    grid-template-columns: 1fr 40px 60px 72px;
     align-items: center;
-    gap: 8px;
-    background: rgba(255,255,255,0.03);
+    gap: 6px;
+    background: var(--field);
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 6px 6px 6px 14px;
+    transition: border-color .15s ease;
   }
-  .counter.active { border-color: rgba(232,163,61,0.5); }
-  .counter-label { font-size: 14px; font-weight: 700; }
+  .counter.active { border-color: var(--amber-line); }
+  .counter-label { font-size: 15px; font-weight: 700; }
   .counter-btn {
-    width: 48px;
-    height: 44px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    color: var(--text);
-    font-size: 20px;
+    height: 48px;
+    border-radius: 9px;
+    font-family: var(--mono);
     font-weight: 700;
     cursor: pointer;
-    transition: transform .08s ease;
+    transition: transform .08s ease, background .1s ease;
   }
-  .counter-btn:active { background: var(--amber); color: var(--ink); transform: scale(0.94); }
-  .counter-num {
-    font-family: 'JetBrains Mono', monospace;
+  .counter-btn.minus {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--muted);
     font-size: 18px;
+  }
+  .counter-btn.plus {
+    background: var(--amber-soft);
+    border: 1px solid var(--amber-line);
+    color: var(--amber2);
+    font-size: 26px;
+  }
+  .counter-btn:active { transform: scale(0.94); }
+  .counter-btn.plus:active { background: var(--amber); color: var(--ink); }
+  .counter-num {
+    width: 100%;
+    height: 44px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-family: var(--mono);
+    font-size: 20px;
     font-weight: 700;
     text-align: center;
-    color: var(--text);
+    color: var(--muted);
   }
-  .counter-num.nonzero { color: var(--amber2); }
+  .counter-num:focus { background: rgba(0,0,0,0.2); border-color: var(--amber); }
+  .counter.active .counter-num { color: var(--amber2); }
+  .counter-hint { font-size: 11px; color: var(--muted2); margin-top: 8px; }
 
-  /* ─── 進捗バー ─── */
-  .progress-box {
+  /* ─── MNP目標 ─── */
+  .mnp-toggle {
+    width: 100%;
     margin-top: 12px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--line);
+    padding: 12px;
+    min-height: 46px;
+    background: transparent;
+    border: 1px dashed var(--line);
     border-radius: 10px;
-    padding: 12px 14px;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .mnp-box {
+    display: none;
+    margin-top: 12px;
+    background: var(--field);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  .mnp-open .mnp-box { display: block; }
+  .mnp-open .mnp-toggle { display: none; }
+  .mnp-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .mnp-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 12px;
+    text-decoration: underline;
+    padding: 6px;
+    cursor: pointer;
+  }
+  .mnp-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .mnp-inputs label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .mnp-inputs .unit { position: relative; }
+  .mnp-inputs .unit input {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 700;
+    padding-right: 34px;
+  }
+  .mnp-inputs .unit::after {
+    content: '件';
+    position: absolute;
+    right: 12px; top: 50%;
+    transform: translateY(-50%);
+    font-size: 13px;
+    color: var(--muted);
   }
   .progress-text {
     display: flex;
     justify-content: space-between;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
+    align-items: baseline;
+    font-size: 13px;
     color: var(--muted);
     margin-bottom: 8px;
   }
-  .progress-text b { color: var(--amber2); font-size: 14px; }
+  .progress-text b { font-family: var(--mono); color: var(--amber2); font-size: 18px; }
   .progress-track {
     height: 10px;
     background: rgba(255,255,255,0.06);
@@ -181,19 +331,41 @@
     transition: width .25s ease;
   }
   .progress-fill.done { background: linear-gradient(90deg, #2FA75C, var(--green)); }
+  .mnp-hint { font-size: 12px; color: var(--muted2); margin-top: 10px; line-height: 1.6; }
+
+  /* ─── 画面下の送信バー ─── */
+  .bar {
+    display: none;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 10;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(11,18,32,0.88);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-top: 1px solid var(--line);
+  }
+  body.has-bar .bar { display: block; }
+  .bar-inner { max-width: 520px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
+  .bar-stats { display: flex; gap: 14px; padding-left: 4px; }
+  .bar-stat { text-align: center; line-height: 1.2; }
+  .bar-stat .k { font-size: 10px; color: var(--muted); }
+  .bar-stat .n { font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--text); }
+  .bar-stat .n.nonzero { color: var(--amber2); }
+  .bar .submit-btn { flex: 1; }
 
   .submit-btn {
     width: 100%;
-    padding: 16px;
+    padding: 14px;
     min-height: 54px;
     background: var(--amber);
     border: none;
     border-radius: 12px;
     color: var(--ink);
     font-size: 17px;
-    font-weight: 800;
+    font-weight: 900;
     font-family: inherit;
-    letter-spacing: 2px;
+    letter-spacing: 1px;
     cursor: pointer;
     transition: transform .08s ease;
   }
@@ -213,8 +385,8 @@
   .msg.ng { display: block; background: rgba(232,106,90,0.10); border: 1px solid rgba(232,106,90,0.4); color: var(--red); }
 
   .foot {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 8px;
+    font-family: var(--mono);
+    font-size: 10px;
     letter-spacing: 2px;
     color: var(--muted2);
     text-align: center;
@@ -222,89 +394,60 @@
   }
 
   /* ═══ 確認画面 ═══ */
-  .confirm-screen { display: none; }
-  .confirm-screen.show { display: block; }
-  .confirm-badge {
+  .confirm-screen, .done-screen { display: none; }
+  .confirm-screen.show, .done-screen.show { display: block; }
+  .badge {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
-    color: var(--amber);
-    background: rgba(232,163,61,0.10);
-    border: 1px solid rgba(232,163,61,0.4);
+    font-size: 13px;
+    font-weight: 700;
     border-radius: 8px;
     padding: 6px 12px;
     margin-bottom: 14px;
+    color: var(--amber);
+    background: var(--amber-soft);
+    border: 1px solid var(--amber-line);
   }
-  .confirm-badge .dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--amber);
-  }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .badge.ok { color: var(--green); background: rgba(76,217,123,0.10); border-color: rgba(76,217,123,0.4); }
   .summary {
     border: 1px solid var(--line);
-    border-radius: 10px;
+    border-radius: 12px;
     overflow: hidden;
     margin-bottom: 18px;
   }
   .summary-row {
     display: grid;
-    grid-template-columns: 92px 1fr;
+    grid-template-columns: 84px 1fr;
     gap: 10px;
     padding: 11px 13px;
     border-bottom: 1px solid var(--line);
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.6;
   }
   .summary-row:last-child { border-bottom: none; }
-  .summary-row .k {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 1px;
-    color: var(--muted);
-    padding-top: 4px;
-  }
+  .summary-row .k { font-size: 12px; color: var(--muted); padding-top: 2px; }
   .summary-row .v { word-break: break-word; white-space: pre-wrap; }
-  .summary-row .v .sub-v {
-    display: block;
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 2px;
-  }
+  .summary-row .v .sub-v { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
   .summary-row.empty .v { color: var(--muted2); }
-  .summary-row .v b { color: var(--amber2); font-size: 16px; }
 
   /* ═══ 完成画面 ═══ */
-  .done-screen { display: none; }
-  .done-screen.show { display: block; }
-  .done-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--green);
-    background: rgba(76,217,123,0.10);
-    border: 1px solid rgba(76,217,123,0.4);
-    border-radius: 8px;
-    padding: 6px 12px;
-    margin-bottom: 14px;
-  }
-  .done-badge .dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--green);
-  }
-  .done-badge.warn {
-    color: var(--amber);
-    background: rgba(232,163,61,0.10);
-    border-color: rgba(232,163,61,0.4);
-  }
-  .done-badge.warn .dot { background: var(--amber); }
-  .done-note {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.6;
-    margin-bottom: 14px;
-  }
+  .done-note { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 14px; }
   .done-note.warn { color: var(--amber2); }
+  .month { margin-bottom: 16px; }
+  .month-title { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .stat {
+    background: var(--field);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 6px;
+    text-align: center;
+  }
+  .stat .k { font-size: 11px; color: var(--muted); }
+  .stat .n { font-family: var(--mono); font-size: 26px; font-weight: 700; color: var(--amber2); margin-top: 2px; }
+  .stat .u { font-size: 11px; color: var(--muted); }
   .copy-box {
     background: rgba(0,0,0,0.20);
     border: 1px solid var(--line);
@@ -316,7 +459,6 @@
     word-break: break-word;
     color: var(--text);
     margin-bottom: 14px;
-    font-family: 'Zen Kaku Gothic New', 'Noto Sans JP', sans-serif;
   }
   .copy-btn {
     width: 100%;
@@ -327,7 +469,7 @@
     border-radius: 12px;
     color: var(--ink);
     font-size: 16px;
-    font-weight: 800;
+    font-weight: 900;
     font-family: inherit;
     letter-spacing: 1px;
     cursor: pointer;
@@ -339,19 +481,21 @@
     display: block;
     text-align: center;
     margin-top: 16px;
-    font-size: 13px;
+    font-size: 14px;
     color: var(--muted);
     text-decoration: underline;
     padding: 8px;
+    cursor: pointer;
   }
 
   @media (prefers-reduced-motion: reduce) {
     .eyebrow::before { animation: none; }
     .progress-fill { transition: none; }
+    .field.shake { animation: none; }
   }
 </style>
 </head>
-<body>
+<body class="has-bar">
 <div class="wrap">
 
   <div class="head">
@@ -360,68 +504,88 @@
     <div class="sub">入力して送信すると、Discordの日報チャンネルに自動で投稿されます</div>
   </div>
 
-  <div class="card" id="form-card">
+  <!-- ═══ 入力画面 ═══ -->
+  <div id="form-screen">
 
-    <div class="field">
-      <div class="label">DATE / 入店日</div>
-      <input type="date" id="date">
+    <div class="notice" id="notice">
+      <span id="notice-text"></span>
+      <button type="button" onclick="discardDraft()">クリア</button>
     </div>
 
-    <div class="field">
-      <div class="label">NAME / 名前</div>
-      <div class="chips" id="name-chips"></div>
+    <div class="card">
+      <div class="field" id="f-date">
+        <div class="label"><span class="jp">入店日</span><span class="en">DATE</span></div>
+        <input type="date" id="date">
+      </div>
+
+      <div class="field" id="f-name">
+        <div class="label"><span class="jp">名前</span><span class="en">NAME</span><span class="req">必須</span></div>
+        <div class="chips" id="name-chips"></div>
+        <div class="field-err">名前を選んでください</div>
+      </div>
+
+      <div class="field" id="f-carrier">
+        <div class="label"><span class="jp">キャリア</span><span class="en">CARRIER</span><span class="req">必須</span></div>
+        <div class="chips" id="carrier-chips"></div>
+        <div class="field-err">キャリアを選んでください</div>
+      </div>
+
+      <div class="field" id="f-place">
+        <div class="label"><span class="jp">稼働場所</span><span class="en">PLACE</span><span class="req">必須</span></div>
+        <input type="text" id="place" placeholder="例：ソフトバンク下通" autocomplete="off">
+        <div class="field-err">稼働場所を入力してください</div>
+      </div>
     </div>
 
-    <div class="field">
-      <div class="label">CARRIER / キャリア</div>
-      <div class="chips" id="carrier-chips"></div>
-    </div>
+    <div class="card">
+      <div class="field">
+        <div class="label"><span class="jp">アプローチ</span><span class="en">APPROACH</span><span class="total" id="approach-total">0件</span></div>
+        <div class="counters" id="approach-counters"></div>
+      </div>
 
-    <div class="field">
-      <div class="label">PLACE / 稼働場所</div>
-      <input type="text" id="place" placeholder="例：ソフトバンク下通">
-    </div>
+      <div class="field" id="f-gain">
+        <div class="label"><span class="jp">獲得</span><span class="en">RESULTS</span><span class="total" id="gain-total">0件</span></div>
+        <div class="counters" id="gain-counters"></div>
+        <div class="counter-hint">数字をタップすると直接入力できます。入力内容はこの端末に自動保存されます</div>
 
-    <div class="field">
-      <div class="label">APPROACH / アプローチ <span class="total" id="approach-total">0件</span></div>
-      <div class="counters" id="approach-counters"></div>
-    </div>
-
-    <div class="field">
-      <div class="label">RESULTS / 獲得 <span class="total" id="gain-total">0件</span></div>
-      <div class="counters" id="gain-counters"></div>
-
-      <div class="progress-box">
-        <div class="progress-text" style="margin-bottom:10px;">
-          <span>🎯 MNP目標 <input type="number" id="target" min="0" inputmode="numeric"
-            style="width:64px; padding:6px 8px; text-align:center; display:inline-block; font-size:15px;"> 件</span>
-          <span>前日まで <input type="number" id="prev" min="0" inputmode="numeric" placeholder="0"
-            style="width:64px; padding:6px 8px; text-align:center; display:inline-block; font-size:15px;"> 件</span>
-        </div>
-        <div class="progress-text">
-          <span id="progress-detail">通算 0件</span>
-          <span id="progress-label"><b>0</b>%</span>
-        </div>
-        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-        <div style="font-size:11px; color:var(--muted2); margin-top:8px; line-height:1.5;">
-          複数日イベントの場合は「前日まで」に昨日までのMNP獲得数を入力。今日のMNPは自動で加算されます（進捗は獲得内のMNPのみでカウントします）
+        <button type="button" class="mnp-toggle" onclick="openMnp()">＋ MNP目標を設定する（イベント時）</button>
+        <div class="mnp-box">
+          <div class="mnp-head">
+            <span>🎯 MNP目標</span>
+            <button type="button" class="mnp-close" onclick="closeMnp()">目標を外す</button>
+          </div>
+          <div class="mnp-inputs">
+            <div>
+              <label for="target">目標</label>
+              <div class="unit"><input type="number" id="target" min="0" inputmode="numeric" placeholder="0"></div>
+            </div>
+            <div>
+              <label for="prev">前日までのMNP</label>
+              <div class="unit"><input type="number" id="prev" min="0" inputmode="numeric" placeholder="0"></div>
+            </div>
+          </div>
+          <div class="progress-text">
+            <span id="progress-detail">MNP通算 0件</span>
+            <span><b id="progress-pct">0</b>%</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+          <div class="mnp-hint">複数日イベントの場合は「前日までのMNP」に昨日までの獲得数を入力。今日のMNPは自動で加算されます。同じ稼働場所で続けて送ると、翌日は自動で引き継がれます</div>
         </div>
       </div>
     </div>
 
-    <div class="field">
-      <div class="label">NOTE / 所感</div>
-      <textarea id="note" placeholder="今日良かったこと・課題・明日やることなど"></textarea>
+    <div class="card">
+      <div class="field">
+        <div class="label"><span class="jp">所感</span><span class="en">NOTE</span></div>
+        <textarea id="note" placeholder="今日良かったこと・課題・明日やることなど"></textarea>
+      </div>
     </div>
-
-    <button class="submit-btn" id="submit" onclick="goConfirm()">日報を作成する</button>
-    <div class="msg" id="msg"></div>
 
   </div>
 
   <!-- ═══ 確認画面 ═══ -->
   <div class="card confirm-screen" id="confirm-screen">
-    <div class="confirm-badge"><span class="dot"></span>この内容で送信します</div>
+    <div class="badge"><span class="dot"></span>この内容で送信します</div>
     <div class="summary" id="summary"></div>
     <button class="submit-btn" id="send-btn" onclick="send()">Discordに送信する</button>
     <div class="msg" id="confirm-msg"></div>
@@ -430,8 +594,16 @@
 
   <!-- ═══ 完成画面 ═══ -->
   <div class="card done-screen" id="done-screen">
-    <div class="done-badge" id="done-badge"><span class="dot"></span><span id="done-badge-text">送信しました</span></div>
+    <div class="badge" id="done-badge"><span class="dot"></span><span id="done-badge-text">送信しました</span></div>
     <div class="done-note" id="done-note"></div>
+    <div class="month" id="month">
+      <div class="month-title" id="month-title">今月の成績</div>
+      <div class="stats">
+        <div class="stat"><div class="k">MNP合計</div><div class="n" id="st-mnp">0</div><div class="u">件</div></div>
+        <div class="stat"><div class="k">稼働日数</div><div class="n" id="st-days">0</div><div class="u">日</div></div>
+        <div class="stat"><div class="k">MNP平均</div><div class="n" id="st-avg">0</div><div class="u">件/日</div></div>
+      </div>
+    </div>
     <div class="copy-box" id="copy-box"></div>
     <button class="copy-btn" id="copy-btn" onclick="copyText()">📋 テキストをコピー</button>
     <a class="again-link" onclick="resetForm()">‹ もう一件入力する</a>
@@ -439,6 +611,17 @@
 
   <div class="foot">SIEG OPERATIONS PORTAL ★ KUMAMOTO</div>
 
+</div>
+
+<!-- ═══ 画面下の送信バー ═══ -->
+<div class="bar">
+  <div class="bar-inner">
+    <div class="bar-stats">
+      <div class="bar-stat"><div class="k">アプローチ</div><div class="n" id="bar-approach">0</div></div>
+      <div class="bar-stat"><div class="k">獲得</div><div class="n" id="bar-gain">0</div></div>
+    </div>
+    <button class="submit-btn" id="submit" onclick="goConfirm()">日報を作成する</button>
+  </div>
 </div>
 
 <script>
@@ -452,44 +635,154 @@
   var APPROACH_ITEMS = ['キャッチ', '着座'];                    // アプローチの内訳
   var GAIN_ITEMS = ['MNP', '新規', '固定', '電気', 'カード'];   // 獲得の内訳
 
+  // MNP目標を翌日以降に引き継ぐ日数（同じ稼働場所で、前回送信からこの日数以内なら引き継ぐ）
+  var EVENT_CARRY_DAYS = 3;
+
   // ═══════════════════════════════════════
 
-  var selName = '';
-  var selCarrier = '';
-  var approachCounts = {};
-  var gainCounts = {};
+  // この端末に保存するもの
+  //   PREFS : 前回送信した名前・キャリア・稼働場所（次回の初期値）
+  //   EVENT : 前回送信したMNP目標と通算（複数日イベントの引き継ぎ用）
+  //   DRAFT : 入力途中の内容（ブラウザを閉じても消えないように）
+  var PREFS_KEY = 'nippou.prefs.v1';
+  var EVENT_KEY = 'nippou.event.v1';
+  var DRAFT_KEY = 'nippou.draft.v1';
 
-  // 入店日の初期値：今日
-  (function() {
+  function load(key) {
+    try { var s = localStorage.getItem(key); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+  }
+  function store(key, v) {
+    try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {}
+  }
+  function drop(key) {
+    try { localStorage.removeItem(key); } catch (e) {}
+  }
+
+  function $(id) { return document.getElementById(id); }
+
+  function buzz(pattern) {
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) {}
+  }
+
+  function todayStr() {
     var d = new Date();
-    var y = d.getFullYear();
-    var m = String(d.getMonth() + 1).padStart(2, '0');
-    var dd = String(d.getDate()).padStart(2, '0');
-    document.getElementById('date').value = y + '-' + m + '-' + dd;
-  })();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
 
-  function buildChips(boxId, list, onPick) {
-    var box = document.getElementById(boxId);
+  // 'yyyy-mm-dd' 同士の日数差（b - a）。読めなければ NaN
+  function daysBetween(a, b) {
+    var pa = String(a || '').split('-'), pb = String(b || '').split('-');
+    var ta = Date.UTC(Number(pa[0]), Number(pa[1]) - 1, Number(pa[2]));
+    var tb = Date.UTC(Number(pb[0]), Number(pb[1]) - 1, Number(pb[2]));
+    return Math.round((tb - ta) / 86400000);
+  }
+
+  function zeroCounts(items) {
+    var o = {};
+    items.forEach(function(k) { o[k] = 0; });
+    return o;
+  }
+
+  function sum(counts) {
+    var t = 0;
+    for (var k in counts) t += counts[k];
+    return t;
+  }
+
+  // ─── 入力内容 ───
+  var state;
+
+  // 新しく入力を始めるときの状態。前回の名前・キャリア・稼働場所と、
+  // 続いているイベントのMNP目標を初期値として入れる
+  function freshState() {
+    var s = {
+      date: todayStr(),
+      name: '',
+      carrier: '',
+      place: '',
+      approach: zeroCounts(APPROACH_ITEMS),
+      gain: zeroCounts(GAIN_ITEMS),
+      target: '',
+      prev: '',
+      note: '',
+      mnpOpen: false
+    };
+
+    var prefs = load(PREFS_KEY);
+    if (prefs) {
+      if (NAMES.indexOf(prefs.name) >= 0) s.name = prefs.name;
+      if (CARRIERS.indexOf(prefs.carrier) >= 0) s.carrier = prefs.carrier;
+      s.place = String(prefs.place || '');
+    }
+
+    var ev = load(EVENT_KEY);
+    if (ev && Number(ev.target) > 0 && ev.place === s.place) {
+      var gap = daysBetween(ev.date, s.date);
+      if (gap === 0) {
+        // 同じ日にもう一度送る場合は、前回と同じ「前日まで」
+        s.target = String(ev.target); s.prev = String(ev.prev || 0); s.mnpOpen = true;
+      } else if (gap >= 1 && gap <= EVENT_CARRY_DAYS) {
+        // 翌日以降は、前回の通算がそのまま「前日まで」になる
+        s.target = String(ev.target); s.prev = String(ev.cumulative || 0); s.mnpOpen = true;
+      }
+    }
+    return s;
+  }
+
+  function hasProgress(s) {
+    return sum(s.approach) + sum(s.gain) > 0 || String(s.note || '').trim() !== '';
+  }
+
+  // 保存済みの下書きを state に重ねる（知らない項目は無視する）
+  function applyDraft(s, d) {
+    if (d.date) s.date = String(d.date);
+    if (NAMES.indexOf(d.name) >= 0) s.name = d.name;
+    if (CARRIERS.indexOf(d.carrier) >= 0) s.carrier = d.carrier;
+    s.place = String(d.place || '');
+    APPROACH_ITEMS.forEach(function(k) { s.approach[k] = Math.max(0, Number(d.approach && d.approach[k]) || 0); });
+    GAIN_ITEMS.forEach(function(k) { s.gain[k] = Math.max(0, Number(d.gain && d.gain[k]) || 0); });
+    s.target = d.target != null ? String(d.target) : '';
+    s.prev = d.prev != null ? String(d.prev) : '';
+    s.note = String(d.note || '');
+    s.mnpOpen = !!d.mnpOpen;
+  }
+
+  function saveDraft() {
+    if (hasProgress(state)) store(DRAFT_KEY, state);
+    else drop(DRAFT_KEY);
+  }
+
+  // ─── チップ ───
+  function buildChips(boxId, list, key, fieldId) {
+    var box = $(boxId);
     list.forEach(function(v) {
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'chip';
       b.textContent = v;
+      b.dataset.value = v;
       b.onclick = function() {
-        box.querySelectorAll('.chip').forEach(function(c) { c.classList.remove('on'); });
-        b.classList.add('on');
-        onPick(v);
+        state[key] = v;
+        markChip(boxId, v);
+        $(fieldId).classList.remove('invalid');
+        saveDraft();
       };
       box.appendChild(b);
     });
   }
-  buildChips('name-chips', NAMES, function(v) { selName = v; });
-  buildChips('carrier-chips', CARRIERS, function(v) { selCarrier = v; });
 
-  function buildCounters(boxId, items, counts, onChange) {
-    var box = document.getElementById(boxId);
+  function markChip(boxId, value) {
+    $(boxId).querySelectorAll('.chip').forEach(function(c) {
+      c.classList.toggle('on', c.dataset.value === value);
+    });
+  }
+
+  // ─── カウンター ───
+  var counterRefs = { approach: {}, gain: {} };
+
+  function buildCounters(boxId, items, group) {
+    var box = $(boxId);
     items.forEach(function(label) {
-      counts[label] = 0;
       var row = document.createElement('div');
       row.className = 'counter';
 
@@ -499,76 +792,208 @@
 
       var minus = document.createElement('button');
       minus.type = 'button';
-      minus.className = 'counter-btn';
+      minus.className = 'counter-btn minus';
       minus.textContent = '−';
+      minus.setAttribute('aria-label', label + 'を1減らす');
 
-      var num = document.createElement('div');
+      // 数字は直接入力もできるように input にしておく
+      var num = document.createElement('input');
+      num.type = 'number';
       num.className = 'counter-num';
-      num.textContent = '0';
+      num.min = '0';
+      num.inputMode = 'numeric';
+      num.setAttribute('aria-label', label + 'の件数');
 
       var plus = document.createElement('button');
       plus.type = 'button';
-      plus.className = 'counter-btn';
+      plus.className = 'counter-btn plus';
       plus.textContent = '＋';
+      plus.setAttribute('aria-label', label + 'を1増やす');
 
-      function update(delta) {
-        counts[label] = Math.max(0, counts[label] + delta);
-        num.textContent = counts[label];
-        num.classList.toggle('nonzero', counts[label] > 0);
-        row.classList.toggle('active', counts[label] > 0);
-        onChange();
+      function bump(delta) {
+        state[group][label] = Math.max(0, state[group][label] + delta);
+        num.value = state[group][label];
+        buzz(10);
+        afterCountChange();
       }
-      minus.onclick = function() { update(-1); };
-      plus.onclick = function() { update(1); };
+      minus.onclick = function() { bump(-1); };
+      plus.onclick = function() { bump(1); };
+
+      num.addEventListener('focus', function() { num.select(); });
+      num.addEventListener('input', function() {
+        var v = parseInt(num.value, 10);
+        state[group][label] = isNaN(v) ? 0 : Math.max(0, Math.min(9999, v));
+        afterCountChange();
+      });
+      num.addEventListener('blur', function() { num.value = state[group][label]; });
 
       row.appendChild(lab);
       row.appendChild(minus);
       row.appendChild(num);
       row.appendChild(plus);
       box.appendChild(row);
+      counterRefs[group][label] = { row: row, num: num };
     });
   }
 
-  function sum(counts) {
-    var t = 0;
-    for (var k in counts) t += counts[k];
-    return t;
+  function renderCounters() {
+    ['approach', 'gain'].forEach(function(group) {
+      for (var label in counterRefs[group]) {
+        var ref = counterRefs[group][label];
+        var n = state[group][label];
+        if (document.activeElement !== ref.num) ref.num.value = n;
+        ref.row.classList.toggle('active', n > 0);
+      }
+    });
   }
 
-  function refreshTotals() {
-    document.getElementById('approach-total').textContent = sum(approachCounts) + '件';
-    document.getElementById('gain-total').textContent = sum(gainCounts) + '件';
-    refreshProgress();
+  function renderTotals() {
+    var a = sum(state.approach), g = sum(state.gain);
+    $('approach-total').textContent = a + '件';
+    $('gain-total').textContent = g + '件';
+    $('bar-approach').textContent = a;
+    $('bar-gain').textContent = g;
+    $('bar-approach').classList.toggle('nonzero', a > 0);
+    $('bar-gain').classList.toggle('nonzero', g > 0);
   }
 
-  function refreshProgress() {
-    var target = parseInt(document.getElementById('target').value, 10) || 0;
-    var prev = parseInt(document.getElementById('prev').value, 10) || 0;
-    var mnp = gainCounts['MNP'] || 0;
-    var cumulative = prev + mnp;
+  function afterCountChange() {
+    renderCounters();
+    renderTotals();
+    renderProgress();
+    saveDraft();
+  }
+
+  // ─── MNP目標 ───
+  function renderMnp() {
+    $('f-gain').classList.toggle('mnp-open', state.mnpOpen);
+    $('target').value = state.target;
+    $('prev').value = state.prev;
+    renderProgress();
+  }
+
+  function renderProgress() {
+    var target = parseInt(state.target, 10) || 0;
+    var prev = parseInt(state.prev, 10) || 0;
+    var cumulative = prev + (state.gain['MNP'] || 0);
     var pct = target > 0 ? Math.round(cumulative / target * 100) : 0;
-    document.getElementById('progress-detail').textContent = 'MNP通算 ' + cumulative + '件';
-    document.getElementById('progress-label').innerHTML = '<b>' + pct + '</b>%';
-    var fill = document.getElementById('progress-fill');
+    $('progress-detail').textContent = 'MNP通算 ' + cumulative + (target > 0 ? ' / ' + target : '') + '件';
+    $('progress-pct').textContent = pct;
+    var fill = $('progress-fill');
     fill.style.width = Math.min(100, pct) + '%';
     fill.classList.toggle('done', target > 0 && cumulative >= target);
   }
 
-  buildCounters('approach-counters', APPROACH_ITEMS, approachCounts, refreshTotals);
-  buildCounters('gain-counters', GAIN_ITEMS, gainCounts, refreshTotals);
-  document.getElementById('target').addEventListener('input', refreshProgress);
-  document.getElementById('prev').addEventListener('input', refreshProgress);
+  function openMnp() {
+    state.mnpOpen = true;
+    renderMnp();
+    saveDraft();
+    $('target').focus();
+  }
+
+  // 閉じたら目標も外す（見えないところで目標が送られないように）
+  function closeMnp() {
+    state.mnpOpen = false;
+    state.target = '';
+    state.prev = '';
+    renderMnp();
+    saveDraft();
+  }
+
+  // ─── 下書き ───
+  function showNotice(draftDate) {
+    var stale = draftDate && draftDate !== todayStr();
+    $('notice').classList.add('show');
+    $('notice').classList.toggle('warn', !!stale);
+    $('notice-text').textContent = stale
+      ? '📝 ' + fmtDate(draftDate) + 'の未送信の日報を復元しました'
+      : '📝 入力途中の内容を復元しました';
+  }
+
+  function discardDraft() {
+    drop(DRAFT_KEY);
+    state = freshState();
+    renderAll();
+    $('notice').classList.remove('show');
+  }
+
+  function renderAll() {
+    $('date').value = state.date;
+    markChip('name-chips', state.name);
+    markChip('carrier-chips', state.carrier);
+    $('place').value = state.place;
+    $('note').value = state.note;
+    ['f-name', 'f-carrier', 'f-place'].forEach(function(id) { $(id).classList.remove('invalid'); });
+    renderCounters();
+    renderTotals();
+    renderMnp();
+  }
+
+  // ─── 初期化 ───
+  buildChips('name-chips', NAMES, 'name', 'f-name');
+  buildChips('carrier-chips', CARRIERS, 'carrier', 'f-carrier');
+  buildCounters('approach-counters', APPROACH_ITEMS, 'approach');
+  buildCounters('gain-counters', GAIN_ITEMS, 'gain');
+
+  state = freshState();
+  (function() {
+    var draft = load(DRAFT_KEY);
+    if (draft && typeof draft === 'object') {
+      applyDraft(state, draft);
+      if (hasProgress(state)) showNotice(state.date);
+      else state = freshState();
+    }
+  })();
+  renderAll();
+
+  $('date').addEventListener('change', function() { state.date = this.value; saveDraft(); });
+  $('place').addEventListener('input', function() {
+    state.place = this.value;
+    $('f-place').classList.remove('invalid');
+    saveDraft();
+  });
+  $('note').addEventListener('input', function() { state.note = this.value; saveDraft(); });
+  $('target').addEventListener('input', function() { state.target = this.value; renderProgress(); saveDraft(); });
+  $('prev').addEventListener('input', function() { state.prev = this.value; renderProgress(); saveDraft(); });
+
+  // ─── 画面切り替え ───
+  function showScreen(name) {
+    $('form-screen').style.display = name === 'form' ? 'block' : 'none';
+    $('confirm-screen').classList.toggle('show', name === 'confirm');
+    $('done-screen').classList.toggle('show', name === 'done');
+    document.body.classList.toggle('has-bar', name === 'form');
+    window.scrollTo(0, 0);
+  }
 
   function showMsg(ok, text, id) {
-    var el = document.getElementById(id || 'msg');
+    var el = $(id);
     el.className = 'msg ' + (ok ? 'ok' : 'ng');
     el.textContent = text;
   }
 
-  function toBreakdown(counts) {
-    var arr = [];
-    for (var k in counts) arr.push({ label: k, count: counts[k] });
-    return arr;
+  // 未入力の項目を赤くして、最初の1つまでスクロールする
+  function validate() {
+    var checks = [
+      ['f-name', !state.name],
+      ['f-carrier', !state.carrier],
+      ['f-place', !state.place.trim()]
+    ];
+    var first = null;
+    checks.forEach(function(c) {
+      $(c[0]).classList.toggle('invalid', c[1]);
+      if (c[1] && !first) first = $(c[0]);
+    });
+    if (!first) return true;
+    first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    first.classList.remove('shake');
+    void first.offsetWidth;
+    first.classList.add('shake');
+    buzz([30, 40, 30]);
+    return false;
+  }
+
+  function toBreakdown(items, counts) {
+    return items.map(function(k) { return { label: k, count: counts[k] || 0 }; });
   }
 
   // 送信待ちの内容。確認画面で表示したものと、実際に送るものを一致させるため
@@ -578,7 +1003,7 @@
   // 'yyyy-mm-dd' → '8/10（月）'（GAS側の表記に合わせる）
   function fmtDate(v) {
     if (!v) return '';
-    var p = v.split('-');
+    var p = String(v).split('-');
     var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
     if (isNaN(d.getTime())) return '';
     return (d.getMonth() + 1) + '/' + d.getDate()
@@ -613,26 +1038,23 @@
     }
     row.appendChild(k);
     row.appendChild(v);
-    document.getElementById('summary').appendChild(row);
+    $('summary').appendChild(row);
   }
 
   function goConfirm() {
-    if (!selName) { showMsg(false, '名前を選んでください'); return; }
-    if (!selCarrier) { showMsg(false, 'キャリアを選んでください'); return; }
-    var place = document.getElementById('place').value.trim();
-    if (!place) { showMsg(false, '稼働場所を入力してください'); return; }
+    if (!validate()) return;
 
-    var approaches = toBreakdown(approachCounts);
-    var gains = toBreakdown(gainCounts);
-    var target = parseInt(document.getElementById('target').value, 10) || 0;
-    var prev = parseInt(document.getElementById('prev').value, 10) || 0;
-    var note = document.getElementById('note').value.trim();
+    var approaches = toBreakdown(APPROACH_ITEMS, state.approach);
+    var gains = toBreakdown(GAIN_ITEMS, state.gain);
+    var target = state.mnpOpen ? (parseInt(state.target, 10) || 0) : 0;
+    var prev = target > 0 ? (parseInt(state.prev, 10) || 0) : 0;
+    var note = state.note.trim();
 
     pendingPayload = {
-      date: document.getElementById('date').value,
-      name: selName,
-      carrier: selCarrier,
-      place: place,
+      date: state.date,
+      name: state.name,
+      carrier: state.carrier,
+      place: state.place.trim(),
       approaches: approaches,
       gains: gains,
       target: target,
@@ -640,40 +1062,34 @@
       note: note
     };
 
-    var box = document.getElementById('summary');
-    box.innerHTML = '';
-    addRow('DATE', fmtDate(pendingPayload.date));
-    addRow('NAME', selName);
-    addRow('CARRIER', selCarrier);
-    addRow('PLACE', place);
-    addRow('APPROACH', sumBreakdown(approaches) + '件', fmtBreakdown(approaches));
-    addRow('RESULTS', sumBreakdown(gains) + '件', fmtBreakdown(gains));
+    $('summary').innerHTML = '';
+    addRow('入店日', fmtDate(pendingPayload.date));
+    addRow('名前', pendingPayload.name);
+    addRow('キャリア', pendingPayload.carrier);
+    addRow('稼働場所', pendingPayload.place);
+    addRow('アプローチ', sumBreakdown(approaches) + '件', fmtBreakdown(approaches));
+    addRow('獲得', sumBreakdown(gains) + '件', fmtBreakdown(gains));
     if (target > 0) {
-      var mnp = gainCounts['MNP'] || 0;
+      var mnp = state.gain['MNP'] || 0;
       var cumulative = prev + mnp;
-      addRow('MNP',
+      addRow('MNP進捗',
         cumulative + ' / ' + target + '件（' + Math.round(cumulative / target * 100) + '%）',
         '前日まで ' + prev + '件 ＋ 本日MNP ' + mnp + '件');
     }
-    addRow('NOTE', note);
+    addRow('所感', note);
 
-    document.getElementById('msg').className = 'msg';
-    document.getElementById('confirm-msg').className = 'msg';
-    document.getElementById('form-card').style.display = 'none';
-    document.getElementById('confirm-screen').classList.add('show');
-    window.scrollTo(0, 0);
+    $('confirm-msg').className = 'msg';
+    showScreen('confirm');
   }
 
   function backToForm() {
-    document.getElementById('confirm-screen').classList.remove('show');
-    document.getElementById('form-card').style.display = 'block';
-    window.scrollTo(0, 0);
+    showScreen('form');
   }
 
   function send() {
     if (!pendingPayload) { backToForm(); return; }
 
-    var btn = document.getElementById('send-btn');
+    var btn = $('send-btn');
     btn.disabled = true;
     btn.textContent = '送信中…';
 
@@ -682,50 +1098,74 @@
       btn.textContent = 'Discordに送信する';
     };
 
+    var payload = pendingPayload;
     fetch(NIPPOU_API, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(pendingPayload)
+      body: JSON.stringify(payload)
     })
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data && data.ok) {
-        showDone(data.text || '', data.discord);
+        rememberSent(payload);
+        restore();
+        showDone(data, payload.name);
       } else {
         showMsg(false, 'エラー：' + (data && data.error ? data.error : '不明なエラー'), 'confirm-msg');
         restore();
       }
     })
     .catch(function() {
-      showMsg(false, '通信エラーが発生しました。もう一度お試しください', 'confirm-msg');
+      showMsg(false, '通信エラーが発生しました。入力内容は保存されているので、電波の良い場所でもう一度お試しください', 'confirm-msg');
       restore();
     });
   }
 
-  function showDone(text, discordOk) {
-    document.getElementById('copy-box').textContent = text;
+  // 送信できたら、次回の初期値を覚えて下書きを消す
+  function rememberSent(p) {
+    store(PREFS_KEY, { name: p.name, carrier: p.carrier, place: p.place });
+    if (p.target > 0) {
+      var mnp = toCount(p.gains, 'MNP');
+      store(EVENT_KEY, { place: p.place, date: p.date, target: p.target, prev: p.prev, cumulative: p.prev + mnp });
+    } else {
+      drop(EVENT_KEY);
+    }
+    drop(DRAFT_KEY);
+  }
 
-    // discordOk: true=投稿成功 / false=投稿失敗 / null・undefined=Discord未設定
-    var badge = document.getElementById('done-badge');
-    var note = document.getElementById('done-note');
-    var failed = (discordOk !== true);
-    badge.classList.toggle('warn', failed);
-    note.classList.toggle('warn', failed);
-    document.getElementById('done-badge-text').textContent =
-      failed ? '記録しました（Discord未送信）' : 'Discordに送信しました';
-    note.textContent = failed
+  function toCount(arr, label) {
+    for (var i = 0; i < arr.length; i++) if (arr[i].label === label) return Number(arr[i].count) || 0;
+    return 0;
+  }
+
+  function showDone(data, name) {
+    $('copy-box').textContent = data.text || '';
+
+    // discord: true=投稿成功 / false=投稿失敗 / null・undefined=Discord未設定
+    var failed = (data.discord !== true);
+    $('done-badge').classList.toggle('ok', !failed);
+    $('done-note').classList.toggle('warn', failed);
+    $('done-badge-text').textContent = failed ? '記録しました（Discord未送信）' : 'Discordに送信しました';
+    $('done-note').textContent = failed
       ? 'スプレッドシートには記録済みですが、Discordへの投稿に失敗しました。下のテキストをコピーして日報チャンネルに手動で貼り付けてください。'
       : '日報チャンネルに投稿済みです。控えが必要な場合は下のテキストをコピーしてください。';
 
-    document.getElementById('form-card').style.display = 'none';
-    document.getElementById('confirm-screen').classList.remove('show');
-    document.getElementById('done-screen').classList.add('show');
-    window.scrollTo(0, 0);
+    // 今月の成績（GASが返さない古いデプロイでは表示しない）
+    var hasStats = data.monthlyMnp != null && data.workDays != null;
+    $('month').style.display = hasStats ? 'block' : 'none';
+    if (hasStats) {
+      $('month-title').textContent = '今月の成績（' + name + '）';
+      $('st-mnp').textContent = data.monthlyMnp;
+      $('st-days').textContent = data.workDays;
+      $('st-avg').textContent = data.mnpAvg != null ? data.mnpAvg : '-';
+    }
+
+    showScreen('done');
   }
 
   function copyText() {
-    var text = document.getElementById('copy-box').textContent;
-    var btn = document.getElementById('copy-btn');
+    var text = $('copy-box').textContent;
+    var btn = $('copy-btn');
     var done = function() {
       btn.textContent = '✓ コピーしました';
       btn.classList.add('copied');
@@ -753,35 +1193,13 @@
   }
 
   function resetForm() {
-    selName = ''; selCarrier = '';
-    document.querySelectorAll('#name-chips .chip, #carrier-chips .chip').forEach(function(c) { c.classList.remove('on'); });
-    document.getElementById('place').value = '';
-    document.getElementById('note').value = '';
-    document.getElementById('target').value = '';
-    document.getElementById('prev').value = '';
-    Object.keys(approachCounts).forEach(function(k) { approachCounts[k] = 0; });
-    Object.keys(gainCounts).forEach(function(k) { gainCounts[k] = 0; });
-    document.querySelectorAll('#approach-counters .counter-num, #gain-counters .counter-num').forEach(function(n) {
-      n.textContent = '0'; n.classList.remove('nonzero');
-    });
-    document.querySelectorAll('#approach-counters .counter, #gain-counters .counter').forEach(function(r) {
-      r.classList.remove('active');
-    });
-    refreshTotals();
+    state = freshState();
     pendingPayload = null;
-    document.getElementById('msg').className = 'msg';
-    document.getElementById('confirm-msg').className = 'msg';
-    document.getElementById('summary').innerHTML = '';
-    var btn = document.getElementById('submit');
-    btn.disabled = false;
-    btn.textContent = '日報を作成する';
-    var sendBtn = document.getElementById('send-btn');
-    sendBtn.disabled = false;
-    sendBtn.textContent = 'Discordに送信する';
-    document.getElementById('done-screen').classList.remove('show');
-    document.getElementById('confirm-screen').classList.remove('show');
-    document.getElementById('form-card').style.display = 'block';
-    window.scrollTo(0, 0);
+    renderAll();
+    $('notice').classList.remove('show');
+    $('confirm-msg').className = 'msg';
+    $('summary').innerHTML = '';
+    showScreen('form');
   }
 </script>
 </body>

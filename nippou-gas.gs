@@ -57,20 +57,50 @@ function pickCount_(arr, label) {
   return hit.length ? (Number(hit[0].count) || 0) : 0;
 }
 
-// 同じ名前の今月の獲得合計（今回分を含めるため、追記後に呼ぶ）
-function monthlyTotal_(name) {
-  var data = getSheet_().getDataRange().getValues();
-  var now = new Date();
-  var total = 0;
+// 日付を 'yyyy-MM-dd' に揃える（シートの入店日セルは Date、送信値は文字列で来る）
+function ymd_(v, tz) {
+  if (Object.prototype.toString.call(v) === '[object Date]') return isNaN(v.getTime()) ? '' : Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+  var m = String(v || '').match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if (!m) return '';
+  return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+}
+
+// 獲得内訳 "MNP3 / 新規1" から MNP の件数を取り出す（過去の行もこの列から数える）
+function mnpFromBreakdown_(s) {
+  var parts = String(s || '').split(' / ');
+  for (var i = 0; i < parts.length; i++) {
+    var m = parts[i].match(/^MNP(\d+)$/);
+    if (m) return Number(m[1]);
+  }
+  return 0;
+}
+
+// 同じ名前の、入店日と同じ月の集計（今回分を含めるため、追記後に呼ぶ）
+//   gain   : 獲得合計
+//   mnp    : MNP合計
+//   days   : 稼働日数（同じ入店日に複数回送っていても1日と数える）
+//   mnpAvg : 1稼働日あたりのMNP（小数第1位まで）
+function monthlyStats_(name, dateYmd) {
+  var sheet = getSheet_();
+  var tz = sheet.getParent().getSpreadsheetTimeZone();
+  var month = (dateYmd || Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd')).slice(0, 7);
+  var data = sheet.getDataRange().getValues();
+  var gain = 0, mnp = 0, days = {};
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][2]) !== name) continue;
-    var d = new Date(data[i][1]);
-    if (isNaN(d.getTime())) continue;
-    if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()) {
-      total += Number(data[i][7]) || 0;
-    }
+    var d = ymd_(data[i][1], tz);
+    if (d.slice(0, 7) !== month) continue;
+    gain += Number(data[i][7]) || 0;
+    mnp += mnpFromBreakdown_(data[i][8]);
+    days[d] = true;
   }
-  return total;
+  var dayCount = Object.keys(days).length;
+  return {
+    gain: gain,
+    mnp: mnp,
+    days: dayCount,
+    mnpAvg: dayCount ? Math.round(mnp / dayCount * 10) / 10 : 0
+  };
 }
 
 // 進捗バー "■■■□□□□□□□"
@@ -83,9 +113,10 @@ function bar_(pct) {
 // スクリプトプロパティ「DISCORD_WEBHOOK」にURLが設定されていれば #日報 へ自動投稿
 //
 // meta には doPost で算出済みの値を渡す：
-//   { dateStr, pct, cumulative, prev, mnpCount, target, monthly, approachTotal, gainTotal }
+//   { dateStr, pct, cumulative, prev, mnpCount, target, monthly, monthlyMnp, workDays, mnpAvg,
+//     approachTotal, gainTotal }
 // 渡っていない項目は p から計算し直すので、meta が dateStr だけでも動作する
-// （ただし monthly はシート由来のため、渡さないと 0件 表示になる）
+// （ただし monthly / monthlyMnp / workDays / mnpAvg はシート由来のため、渡さないと 0 表示になる）
 //
 // 戻り値：URL未設定なら null、投稿を試みたら成功/失敗の true/false（doPost の応答に使う）
 function sendToDiscord_(copyText, p, meta) {
@@ -101,6 +132,9 @@ function sendToDiscord_(copyText, p, meta) {
   var approachTotal = m.approachTotal != null ? (Number(m.approachTotal) || 0) : sumBreakdown_(p.approaches);
   var gainTotal     = m.gainTotal != null ? (Number(m.gainTotal) || 0) : sumBreakdown_(p.gains);
   var monthly       = Number(m.monthly) || 0;
+  var monthlyMnp    = Number(m.monthlyMnp) || 0;
+  var workDays      = Number(m.workDays) || 0;
+  var mnpAvg        = Number(m.mnpAvg) || 0;
   // doPost の pct は target 未設定のとき '' なので、ここでは数値に寄せる
   var pct           = target > 0 ? (Number(m.pct) || Math.round(cumulative / target * 100)) : 0;
 
@@ -134,7 +168,11 @@ function sendToDiscord_(copyText, p, meta) {
     });
   }
 
-  fields.push({ name: '📈 今月通算', value: monthly + '件' });
+  fields.push({
+    name: '📈 今月通算',
+    value: '獲得 **' + monthly + '件** ／ MNP **' + monthlyMnp + '件**\n'
+         + '稼働 ' + workDays + '日 ・ MNP平均 **' + mnpAvg + '件/日**'
+  });
 
   // 所感：入力があるときだけ追加（Discordのフィールド上限1024文字に丸める）
   var note = String(p.note || '').trim();
@@ -236,7 +274,8 @@ function doPost(e) {
       String(p.note || '').trim()
     ]);
 
-    var monthly = monthlyTotal_(String(p.name));
+    var stats = monthlyStats_(String(p.name), ymd_(p.date, 'Asia/Tokyo'));
+    var monthly = stats.gain;
 
     // ─── 日付表記 ───
     var dateStr = '';
@@ -268,6 +307,7 @@ function doPost(e) {
     }
     lines.push('');
     lines.push('📈 今月通算：' + monthly + '件');
+    lines.push('📱 今月MNP：' + stats.mnp + '件（稼働' + stats.days + '日・平均' + stats.mnpAvg + '件/日）');
     if (p.note && String(p.note).trim()) {
       lines.push('');
       lines.push('【所感】');
@@ -297,7 +337,11 @@ function doPost(e) {
           wrap: true
         });
       }
-      body.push({ type: 'TextBlock', text: '📈 今月通算：' + monthly + '件', wrap: true });
+      body.push({
+        type: 'TextBlock',
+        text: '📈 今月通算：' + monthly + '件\n📱 今月MNP：' + stats.mnp + '件（稼働' + stats.days + '日・平均' + stats.mnpAvg + '件/日）',
+        wrap: true
+      });
       if (p.note && String(p.note).trim()) {
         body.push({ type: 'TextBlock', text: '💬 所感\n' + String(p.note).trim(), wrap: true, separator: true });
       }
@@ -327,11 +371,23 @@ function doPost(e) {
       mnpCount: mnpCount,
       target: target,
       monthly: monthly,
+      monthlyMnp: stats.mnp,
+      workDays: stats.days,
+      mnpAvg: stats.mnpAvg,
       approachTotal: approachTotal,
       gainTotal: gainTotal
     });
 
-    return json_({ ok: true, teams: teamsOk, discord: discordOk, monthly: monthly, text: copyText });
+    return json_({
+      ok: true,
+      teams: teamsOk,
+      discord: discordOk,
+      monthly: monthly,
+      monthlyMnp: stats.mnp,
+      workDays: stats.days,
+      mnpAvg: stats.mnpAvg,
+      text: copyText
+    });
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
