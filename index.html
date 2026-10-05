@@ -2,444 +2,576 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>日報 | Sieg 業務ポータル</title>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
+  /* 1カラムの業務ボード：上に今日のスコア、タップで数えるタイル、画面下に送信バー
+     色はスマホの設定（ライト／ダーク）に合わせて自動で切り替わる */
   :root {
     --bg: #0B1220;
-    --bg2: #101B30;
-    --panel: rgba(255,255,255,0.04);
-    --line: rgba(255,255,255,0.10);
-    --amber: #E8A33D;
-    --amber2: #F4C56B;
+    --glow: rgba(232,163,61,0.10);
+    --surface: #121C2E;
+    --surface-2: #182439;
+    --line: #233049;
+    --line-strong: #34445F;
     --text: #EDEFF3;
     --muted: #8A93A6;
-    --muted2: #5C6579;
-    --ink: #0B1220;
-    --green: #4CD97B;
-    --red: #E86A5A;
+    --faint: #56607A;
+    --accent: #E8A33D;
+    --accent-ink: #0B1220;
+    --accent-text: #F4C56B;
+    --accent-soft: rgba(232,163,61,0.13);
+    --accent-line: rgba(232,163,61,0.45);
+    --good: #4CD97B;
+    --good-soft: rgba(76,217,123,0.12);
+    --bad: #E86A5A;
+    --bad-soft: rgba(232,106,90,0.12);
+    --scrim: rgba(3,7,15,0.62);
+    --bar-bg: rgba(11,18,32,0.86);
+    --dc-bg: #2B2D31;
+    --dc-embed: #232428;
+    --dc-head: #F2F3F5;
+    --dc-text: #DBDEE1;
+    --dc-muted: #949BA4;
+    --font-body: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+    --font-num: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    color-scheme: dark;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  body {
-    font-family: 'Zen Kaku Gothic New', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
-    background:
-      radial-gradient(1200px 600px at 100% -10%, rgba(232,163,61,0.10), transparent 60%),
-      linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
-    color: var(--text);
-    min-height: 100vh;
-    padding: 22px 14px 40px;
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #EEF1F6;
+      --glow: rgba(232,163,61,0.14);
+      --surface: #FFFFFF;
+      --surface-2: #F5F7FA;
+      --line: #DCE1EA;
+      --line-strong: #C3CBD8;
+      --text: #0F1A2E;
+      --muted: #5B6476;
+      --faint: #9AA2B1;
+      --accent: #E8A33D;
+      --accent-ink: #1A1204;
+      --accent-text: #98600A;
+      --accent-soft: rgba(232,163,61,0.15);
+      --accent-line: rgba(196,128,26,0.55);
+      --good: #1E9450;
+      --good-soft: rgba(30,148,80,0.10);
+      --bad: #C8442F;
+      --bad-soft: rgba(200,68,47,0.10);
+      --scrim: rgba(15,26,46,0.38);
+      --bar-bg: rgba(238,241,246,0.88);
+      --dc-bg: #FFFFFF;
+      --dc-embed: #F2F3F5;
+      --dc-head: #060607;
+      --dc-text: #313338;
+      --dc-muted: #5C5E66;
+      color-scheme: light;
+    }
   }
-  .wrap { max-width: 520px; margin: 0 auto; }
 
-  .head {
-    padding: 4px 4px 16px;
-    border-bottom: 1px solid var(--line);
-    margin-bottom: 18px;
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; }
+  body {
+    font-family: var(--font-body);
+    font-size: 15px;
+    color: var(--text);
+    background: var(--bg);
+    background-image: radial-gradient(900px 480px at 110% -10%, var(--glow), transparent 60%);
+    background-attachment: fixed;
+    padding: env(safe-area-inset-top, 0px) 16px 0;
+    min-height: 100vh;
   }
+  button, input, textarea { font-family: inherit; color: inherit; }
+  button { cursor: pointer; touch-action: manipulation; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+  .app { max-width: 480px; margin: 0 auto; padding-block: 18px 130px; }
+  .stack { display: flex; flex-direction: column; gap: 14px; }
+
+  /* ─── ヘッダー ─── */
+  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 4px 2px 0; }
   .eyebrow {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    letter-spacing: 3px;
-    color: var(--amber);
+    font-family: var(--font-num); font-size: 10px; letter-spacing: 3px; color: var(--accent-text);
     display: flex; align-items: center; gap: 6px;
   }
-  .eyebrow::before {
-    content: '';
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--amber);
-    box-shadow: 0 0 8px var(--amber);
-    animation: blink 1.6s infinite;
+  .eyebrow::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  h1 { margin: 4px 0 0; font-size: 30px; font-weight: 900; letter-spacing: 2px; line-height: 1.1; }
+  .date-pill {
+    position: relative; display: inline-flex; align-items: center; gap: 8px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+    padding: 9px 14px; font-weight: 700; font-size: 15px; white-space: nowrap;
   }
-  @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:.25;} }
-  .title { font-size: 24px; font-weight: 800; letter-spacing: 1px; margin-top: 6px; }
-  .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 18px 16px;
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
+  .date-pill svg { width: 16px; height: 16px; color: var(--muted); }
+  .date-pill input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+
+  /* ─── 下書き復元のお知らせ ─── */
+  .notice {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; line-height: 1.5;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 10px 12px;
   }
-  .field { margin-bottom: 22px; }
-  .label {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 2px;
-    color: var(--muted);
-    margin-bottom: 8px;
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
+  .notice.warn { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent-line); }
+  .notice span { flex: 1; }
+  .notice button {
+    flex-shrink: 0; background: none; border: 1px solid currentColor; border-radius: 8px;
+    font-size: 12px; font-weight: 700; padding: 6px 10px;
   }
-  .label .total {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 16px;
-    font-weight: 700;
-    color: var(--amber2);
+
+  /* ─── 基本情報 ─── */
+  .profile { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; }
+  .profile-view { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+  .avatar {
+    width: 40px; height: 40px; border-radius: 12px; flex-shrink: 0;
+    display: grid; place-items: center;
+    background: var(--accent-soft); color: var(--accent-text); font-weight: 900; font-size: 17px;
   }
+  .who { flex: 1; min-width: 0; }
+  .who-name { font-weight: 700; font-size: 16px; }
+  .who-sub { font-size: 13px; color: var(--muted); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .link-btn {
+    background: transparent; border: 1px solid var(--line); border-radius: 10px;
+    padding: 8px 12px; font-size: 13px; font-weight: 700; color: var(--muted);
+  }
+  .profile-edit { padding: 16px 14px; display: flex; flex-direction: column; gap: 18px; }
+  .group-label { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+  .req { font-size: 10px; color: var(--accent-text); border: 1px solid var(--accent-line); border-radius: 4px; padding: 0 5px; }
+  .err { display: none; font-size: 12px; color: var(--bad); font-weight: 500; }
+  .group.invalid .err { display: inline; }
+  .group.invalid .chip, .group.invalid .text-input { border-color: var(--bad); }
+  .group.shake { animation: shake .35s ease; }
+  @keyframes shake { 20%{transform:translateX(-6px)} 40%{transform:translateX(6px)} 60%{transform:translateX(-4px)} 80%{transform:translateX(4px)} }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
   .chip {
-    padding: 10px 16px;
-    min-height: 44px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    color: var(--text);
-    font-size: 15px;
-    font-weight: 700;
-    font-family: inherit;
-    cursor: pointer;
-    transition: transform .08s ease;
+    min-height: 44px; padding: 8px 16px; border-radius: 11px;
+    background: var(--surface-2); border: 1px solid var(--line);
+    font-size: 15px; font-weight: 700;
   }
-  .chip.on {
-    background: var(--amber);
-    color: var(--ink);
-    border-color: var(--amber);
+  .chip[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .text-input, textarea {
+    width: 100%; background: var(--surface-2); border: 1px solid var(--line); border-radius: 11px;
+    padding: 12px; font-size: 16px;
   }
-  .chip:active { transform: scale(0.96); }
+  .text-input:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  ::placeholder { color: var(--faint); }
+  .done-row { display: flex; justify-content: flex-end; }
+  .solid-btn {
+    background: var(--text); color: var(--bg); border: none; border-radius: 10px;
+    padding: 10px 18px; font-size: 14px; font-weight: 700;
+  }
 
-  textarea, input[type="date"], input[type="text"], input[type="number"] {
-    width: 100%;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    color: var(--text);
-    font-size: 16px;
-    font-family: inherit;
-    padding: 12px;
+  /* ─── 今日のスコア ─── */
+  .score {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 20px;
+    padding: 18px 4px 16px;
   }
-  textarea { min-height: 120px; resize: vertical; }
-  textarea:focus, input:focus { outline: none; border-color: var(--amber); }
-  input[type="date"] { color-scheme: dark; }
+  .score > div { text-align: center; padding: 0 6px; }
+  .score > div + div { border-left: 1px solid var(--line); }
+  .score .k { font-size: 12px; color: var(--muted); font-weight: 500; }
+  .score .v { font-size: 38px; font-weight: 700; line-height: 1.15; margin-top: 4px; letter-spacing: -1px; }
+  .score .v small { font-size: 15px; color: var(--muted); font-weight: 500; margin-left: 2px; letter-spacing: 0; }
+  .score .v.dim { color: var(--faint); }
 
-  /* ─── カウンター行 ─── */
-  .counters { display: flex; flex-direction: column; gap: 8px; }
-  .counter {
-    display: grid;
-    grid-template-columns: 1fr 48px 44px 48px;
-    align-items: center;
-    gap: 8px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 6px 6px 6px 14px;
-  }
-  .counter.active { border-color: rgba(232,163,61,0.5); }
-  .counter-label { font-size: 14px; font-weight: 700; }
-  .counter-btn {
-    width: 48px;
-    height: 44px;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    color: var(--text);
-    font-size: 20px;
-    font-weight: 700;
-    cursor: pointer;
-    transition: transform .08s ease;
-  }
-  .counter-btn:active { background: var(--amber); color: var(--ink); transform: scale(0.94); }
-  .counter-num {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 18px;
-    font-weight: 700;
-    text-align: center;
-    color: var(--text);
-  }
-  .counter-num.nonzero { color: var(--amber2); }
+  /* ─── セクション ─── */
+  .sec-head { display: flex; align-items: baseline; justify-content: space-between; padding: 6px 2px 0; }
+  .sec-head h2 { margin: 0; font-size: 16px; font-weight: 900; letter-spacing: 1px; }
+  .sec-head .total { font-size: 13px; color: var(--muted); }
+  .sec-head .total b { font-size: 17px; color: var(--text); }
 
-  /* ─── 進捗バー ─── */
-  .progress-box {
-    margin-top: 12px;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 12px 14px;
+  /* ─── タイル ───
+     タイル全体が「＋1」のボタン。＋は押せる場所の目印（タイルのどこを押しても＋1） */
+  .tiles { display: grid; gap: 10px; }
+  .tiles.two { grid-template-columns: 1fr 1fr; }
+  .tiles.four { grid-template-columns: repeat(4, 1fr); }
+  .tile { position: relative; }
+  .tile-hit {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start;
+    gap: 8px; text-align: left;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 16px;
+    padding: 12px 14px; min-height: 104px;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    transition: transform .08s ease, border-color .15s ease, background .15s ease;
   }
-  .progress-text {
-    display: flex;
-    justify-content: space-between;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    color: var(--muted);
-    margin-bottom: 8px;
-  }
-  .progress-text b { color: var(--amber2); font-size: 14px; }
-  .progress-track {
-    height: 10px;
-    background: rgba(255,255,255,0.06);
-    border-radius: 5px;
-    overflow: hidden;
-  }
-  .progress-fill {
-    height: 100%;
-    width: 0%;
-    background: linear-gradient(90deg, var(--amber), var(--amber2));
-    border-radius: 5px;
-    transition: width .25s ease;
-  }
-  .progress-fill.done { background: linear-gradient(90deg, #2FA75C, var(--green)); }
+  .tile-hit:active { transform: scale(0.97); }
+  .t-label { font-size: 14px; font-weight: 700; }
+  .t-num { font-size: 36px; font-weight: 700; line-height: 1; display: inline-block; }
+  .tile.zero .t-label { color: var(--muted); }
+  .tile.zero .t-num { color: var(--faint); }
+  .tile:not(.zero) .tile-hit { border-color: var(--line-strong); }
 
-  .submit-btn {
-    width: 100%;
-    padding: 16px;
-    min-height: 54px;
-    background: var(--amber);
-    border: none;
-    border-radius: 12px;
-    color: var(--ink);
-    font-size: 17px;
-    font-weight: 800;
-    font-family: inherit;
-    letter-spacing: 2px;
-    cursor: pointer;
-    transition: transform .08s ease;
+  .tile-plus {
+    position: absolute; right: 10px; bottom: 10px;
+    width: 48px; height: 48px; border-radius: 14px;
+    display: grid; place-items: center;
+    background: var(--surface-2); border: 1px solid var(--line-strong);
+    color: var(--text); font-size: 28px; font-weight: 500; line-height: 1;
+    transition: background .1s ease, color .1s ease;
   }
-  .submit-btn:active { transform: scale(0.98); }
-  .submit-btn:disabled { opacity: .5; }
+  .tile-hit:active .tile-plus { background: var(--text); color: var(--bg); border-color: var(--text); }
 
-  .msg {
-    margin-top: 14px;
-    padding: 12px;
-    border-radius: 10px;
-    font-size: 14px;
-    text-align: center;
-    display: none;
-    line-height: 1.6;
+  .tile-minus {
+    position: absolute; top: 8px; right: 8px;
+    width: 34px; height: 34px; border-radius: 10px;
+    background: transparent; border: 1px solid var(--line);
+    color: var(--muted); font-size: 18px; font-weight: 700; line-height: 1;
+    display: grid; place-items: center;
   }
-  .msg.ok { display: block; background: rgba(76,217,123,0.10); border: 1px solid rgba(76,217,123,0.4); color: var(--green); }
-  .msg.ng { display: block; background: rgba(232,106,90,0.10); border: 1px solid rgba(232,106,90,0.4); color: var(--red); }
+  .tile.zero .tile-minus { visibility: hidden; }
+
+  /* 小さいタイル：数字・項目名・＋の帯を縦に */
+  .tiles.four .tile-hit { min-height: 0; align-items: stretch; justify-content: flex-start; gap: 4px; padding: 10px 6px 6px; text-align: center; }
+  .tiles.four .t-num { font-size: 26px; }
+  .tiles.four .t-label { font-size: 12px; }
+  .tiles.four .tile-plus {
+    position: static; width: 100%; height: 32px; border-radius: 9px; font-size: 20px; margin-top: 4px;
+  }
+  .tiles.four .tile-minus {
+    top: -7px; right: -7px; width: 26px; height: 26px; border-radius: 50%; font-size: 15px;
+    background: var(--surface); border-color: var(--line-strong);
+  }
+  .tiles.four .tile-minus::before { content: ''; position: absolute; inset: -6px; }
+
+  /* MNP は主役なのでアクセント色 */
+  .tile.hero .tile-hit {
+    display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 6px 12px;
+    min-height: 0; padding: 14px 14px 14px 16px;
+    background: var(--accent-soft); border-color: var(--accent-line);
+  }
+  .tile.hero .t-label { grid-column: 1 / -1; color: var(--accent-text); letter-spacing: 1px; line-height: 34px; margin-top: -6px; }
+  .tile.hero .t-num { font-size: 52px; color: var(--accent-text); }
+  .tile.hero.zero .t-num { color: var(--accent-text); opacity: .45; }
+  .tile.hero .tile-plus {
+    position: static; width: 64px; height: 64px; border-radius: 18px; font-size: 36px; font-weight: 700;
+    background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+  }
+  .tile.hero .tile-hit:active .tile-plus { background: var(--accent-text); border-color: var(--accent-text); color: var(--bg); }
+  .tile.hero .tile-minus { background: transparent; border-color: var(--accent-line); color: var(--accent-text); }
+  .mnp-prog { grid-column: 1 / -1; margin-top: 6px; }
+  .mnp-prog .row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .mnp-prog .row b { font-size: 18px; color: var(--accent-text); }
+  .track { display: block; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .fill { display: block; height: 100%; border-radius: 4px; background: var(--accent); width: 0; transition: width .3s ease; }
+  .fill.done { background: var(--good); }
+
+  .bump { animation: bump .22s ease; }
+  @keyframes bump { 40% { transform: scale(1.18); } }
+  .plus-one {
+    position: absolute; pointer-events: none; font-family: var(--font-num); font-weight: 700;
+    font-size: 15px; color: var(--accent-text); animation: float .6s ease-out forwards;
+  }
+  @keyframes float { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-26px); } }
+
+  .hint { font-size: 12px; color: var(--faint); text-align: center; line-height: 1.6; }
+
+  .target-row {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    background: transparent; border: 1px dashed var(--line-strong); border-radius: 12px;
+    padding: 12px 14px; font-size: 14px; color: var(--muted); text-align: left;
+  }
+  .target-row .grow { flex: 1; }
+  .target-row b { color: var(--text); }
+  .target-row.set { border-style: solid; border-color: var(--line); background: var(--surface); }
+
+  .note-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
+  .note-card textarea { min-height: 96px; resize: vertical; line-height: 1.6; }
 
   .foot {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 8px;
-    letter-spacing: 2px;
-    color: var(--muted2);
-    text-align: center;
-    margin-top: 22px;
+    font-family: var(--font-num); font-size: 10px; letter-spacing: 2px; color: var(--faint);
+    text-align: center; margin-top: 8px;
   }
 
-  /* ═══ 確認画面 ═══ */
-  .confirm-screen { display: none; }
-  .confirm-screen.show { display: block; }
-  .confirm-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--amber);
-    background: rgba(232,163,61,0.10);
-    border: 1px solid rgba(232,163,61,0.4);
-    border-radius: 8px;
-    padding: 6px 12px;
-    margin-bottom: 14px;
+  /* ─── 画面下のバー ─── */
+  .bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: var(--bar-bg); border-top: 1px solid var(--line);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   }
-  .confirm-badge .dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--amber);
+  .bar-inner { max-width: 480px; margin: 0 auto; }
+  .primary {
+    width: 100%; min-height: 54px; border: none; border-radius: 14px;
+    background: var(--accent); color: var(--accent-ink);
+    font-size: 17px; font-weight: 900; letter-spacing: 1px;
+    transition: transform .08s ease;
   }
-  .summary {
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    overflow: hidden;
-    margin-bottom: 18px;
-  }
-  .summary-row {
-    display: grid;
-    grid-template-columns: 92px 1fr;
-    gap: 10px;
-    padding: 11px 13px;
-    border-bottom: 1px solid var(--line);
-    font-size: 14px;
-    line-height: 1.6;
-  }
-  .summary-row:last-child { border-bottom: none; }
-  .summary-row .k {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    letter-spacing: 1px;
-    color: var(--muted);
-    padding-top: 4px;
-  }
-  .summary-row .v { word-break: break-word; white-space: pre-wrap; }
-  .summary-row .v .sub-v {
-    display: block;
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 2px;
-  }
-  .summary-row.empty .v { color: var(--muted2); }
-  .summary-row .v b { color: var(--amber2); font-size: 16px; }
+  .primary:active { transform: scale(0.98); }
+  .primary:disabled { opacity: .6; }
 
-  /* ═══ 完成画面 ═══ */
-  .done-screen { display: none; }
-  .done-screen.show { display: block; }
-  .done-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--green);
-    background: rgba(76,217,123,0.10);
-    border: 1px solid rgba(76,217,123,0.4);
-    border-radius: 8px;
-    padding: 6px 12px;
-    margin-bottom: 14px;
+  /* ─── シート ─── */
+  .scrim { position: fixed; inset: 0; z-index: 30; background: var(--scrim); }
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 31;
+    max-height: 92vh; overflow-y: auto;
+    background: var(--bg); border-top: 1px solid var(--line);
+    border-radius: 22px 22px 0 0;
+    padding: 10px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    animation: up .22s ease;
   }
-  .done-badge .dot {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--green);
+  @keyframes up { from { transform: translateY(40px); opacity: 0; } }
+  .sheet-inner { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .grabber { width: 40px; height: 4px; border-radius: 2px; background: var(--line-strong); margin: 0 auto 4px; }
+  .sheet h3 { margin: 0; font-size: 18px; font-weight: 900; }
+  .sheet .sub { font-size: 13px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+  .text-btn { background: none; border: none; color: var(--muted); font-size: 14px; padding: 10px; text-decoration: underline; }
+
+  .stepper { display: grid; grid-template-columns: 64px 1fr 64px; gap: 10px; align-items: center; }
+  .stepper button {
+    height: 60px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line);
+    font-size: 26px; font-weight: 700;
   }
-  .done-badge.warn {
-    color: var(--amber);
-    background: rgba(232,163,61,0.10);
-    border-color: rgba(232,163,61,0.4);
+  .stepper input {
+    height: 60px; text-align: center; font-size: 30px; font-weight: 700;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; width: 100%;
   }
-  .done-badge.warn .dot { background: var(--amber); }
-  .done-note {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.6;
-    margin-bottom: 14px;
+  .two-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .two-inputs label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .two-inputs input { font-family: var(--font-num); font-size: 22px; font-weight: 700; text-align: center; }
+  input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { -moz-appearance: textfield; }
+
+  .msg {
+    padding: 12px; border-radius: 10px; font-size: 14px; text-align: center; line-height: 1.6;
+    background: var(--bad-soft); border: 1px solid var(--bad); color: var(--bad);
   }
-  .done-note.warn { color: var(--amber2); }
-  .copy-box {
-    background: rgba(0,0,0,0.20);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 14px;
-    font-size: 13px;
-    line-height: 1.7;
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: var(--text);
-    margin-bottom: 14px;
-    font-family: 'Zen Kaku Gothic New', 'Noto Sans JP', sans-serif;
+
+  /* ─── Discord プレビュー ─── */
+  .dc { background: var(--dc-bg); border: 1px solid var(--line); border-radius: 14px; padding: 14px 12px; }
+  .dc-msg { display: flex; gap: 10px; }
+  .dc-avatar {
+    width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
+    background: #5865F2; color: #FFFFFF; font-weight: 900; font-size: 15px;
   }
-  .copy-btn {
-    width: 100%;
-    padding: 16px;
-    min-height: 54px;
-    background: var(--amber);
-    border: none;
-    border-radius: 12px;
-    color: var(--ink);
-    font-size: 16px;
-    font-weight: 800;
-    font-family: inherit;
-    letter-spacing: 1px;
-    cursor: pointer;
-    transition: transform .08s ease, background .15s ease;
+  .dc-main { flex: 1; min-width: 0; }
+  .dc-name { font-size: 14px; font-weight: 700; color: var(--dc-head); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .dc-tag { font-size: 10px; background: #5865F2; color: #FFFFFF; border-radius: 3px; padding: 1px 4px; }
+  .dc-time { font-size: 11px; color: var(--dc-muted); font-weight: 500; }
+  .dc-embed {
+    margin-top: 6px; background: var(--dc-embed); border-radius: 4px;
+    border-left: 4px solid #8A93A6; padding: 10px 12px;
+    font-family: 'Hiragino Sans', 'Noto Sans JP', sans-serif;
   }
-  .copy-btn:active { transform: scale(0.98); }
-  .copy-btn.copied { background: var(--green); }
-  .again-link {
-    display: block;
-    text-align: center;
-    margin-top: 16px;
-    font-size: 13px;
-    color: var(--muted);
-    text-decoration: underline;
-    padding: 8px;
+  .dc-title { font-size: 14px; font-weight: 700; color: var(--dc-head); margin-bottom: 8px; }
+  .dc-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .dc-field { min-width: 0; grid-column: 1 / -1; }
+  .dc-field.inline { grid-column: auto; }
+  .dc-fname { font-size: 12px; font-weight: 700; color: var(--dc-head); margin-bottom: 1px; }
+  .dc-fval { font-size: 13px; color: var(--dc-text); white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
+  .dc-fval b { color: var(--dc-head); }
+  .dc-fval.later { color: var(--dc-muted); font-size: 12px; }
+  .dc-foot { font-size: 11px; color: var(--dc-muted); margin-top: 10px; }
+  .actions { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
+  /* ─── 完了画面 ─── */
+  .done-hero { text-align: center; padding: 18px 0 6px; }
+  .check {
+    width: 68px; height: 68px; border-radius: 50%; margin: 0 auto 14px;
+    display: grid; place-items: center; background: var(--good-soft); color: var(--good);
   }
+  .check.warn { background: var(--accent-soft); color: var(--accent-text); }
+  .check svg { width: 34px; height: 34px; }
+  .check path { stroke-dasharray: 30; stroke-dashoffset: 30; animation: draw .45s .1s ease forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  .done-hero h2 { margin: 0; font-size: 22px; font-weight: 900; }
+  .done-hero p { margin: 8px auto 0; max-width: 34em; font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .done-hero p.warn { color: var(--accent-text); }
+  .achieved { display: inline-block; margin-top: 10px; font-size: 13px; font-weight: 700; color: var(--good); background: var(--good-soft); border-radius: 999px; padding: 5px 12px; }
+  .month { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px 14px; }
+  .month-title { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 12px; }
+  .month-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .month-grid > div { text-align: center; }
+  .month-grid > div + div { border-left: 1px solid var(--line); }
+  .month-grid .k { font-size: 12px; color: var(--muted); }
+  .month-grid .v { font-size: 30px; font-weight: 700; margin-top: 2px; }
+  .month-grid .v small { font-size: 12px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+  .compare { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); text-align: center; }
+  .compare b { color: var(--text); }
+  .compare .up { color: var(--good); font-weight: 700; }
+  .compare .flat { color: var(--muted); font-weight: 700; }
+  details.copy { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+  details.copy summary { padding: 14px; font-size: 14px; font-weight: 700; cursor: pointer; color: var(--muted); }
+  details.copy pre {
+    margin: 0 14px 12px; padding: 12px; border-radius: 10px; background: var(--surface-2);
+    font-family: var(--font-body); font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
+  }
+  details.copy .copy-wrap { padding: 0 14px 14px; }
+  .outline-btn {
+    width: 100%; min-height: 48px; border-radius: 12px; background: transparent;
+    border: 1px solid var(--line-strong); font-size: 15px; font-weight: 700;
+  }
+  .outline-btn.copied { border-color: var(--good); color: var(--good); }
+
+  #confetti { position: fixed; inset: 0; pointer-events: none; z-index: 50; }
 
   @media (prefers-reduced-motion: reduce) {
-    .eyebrow::before { animation: none; }
-    .progress-fill { transition: none; }
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .check path { stroke-dashoffset: 0; }
   }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="app">
 
-  <div class="head">
-    <div class="eyebrow">SIEG OPS BOARD</div>
-    <div class="title">日報</div>
-    <div class="sub">入力して送信すると、Discordの日報チャンネルに自動で投稿されます</div>
-  </div>
+  <!-- ═══ 入力画面 ═══ -->
+  <div class="stack" id="form-screen">
 
-  <div class="card" id="form-card">
-
-    <div class="field">
-      <div class="label">DATE / 入店日</div>
-      <input type="date" id="date">
-    </div>
-
-    <div class="field">
-      <div class="label">NAME / 名前</div>
-      <div class="chips" id="name-chips"></div>
-    </div>
-
-    <div class="field">
-      <div class="label">CARRIER / キャリア</div>
-      <div class="chips" id="carrier-chips"></div>
-    </div>
-
-    <div class="field">
-      <div class="label">PLACE / 稼働場所</div>
-      <input type="text" id="place" placeholder="例：ソフトバンク下通">
-    </div>
-
-    <div class="field">
-      <div class="label">APPROACH / アプローチ <span class="total" id="approach-total">0件</span></div>
-      <div class="counters" id="approach-counters"></div>
-    </div>
-
-    <div class="field">
-      <div class="label">RESULTS / 獲得 <span class="total" id="gain-total">0件</span></div>
-      <div class="counters" id="gain-counters"></div>
-
-      <div class="progress-box">
-        <div class="progress-text" style="margin-bottom:10px;">
-          <span>🎯 MNP目標 <input type="number" id="target" min="0" inputmode="numeric"
-            style="width:64px; padding:6px 8px; text-align:center; display:inline-block; font-size:15px;"> 件</span>
-          <span>前日まで <input type="number" id="prev" min="0" inputmode="numeric" placeholder="0"
-            style="width:64px; padding:6px 8px; text-align:center; display:inline-block; font-size:15px;"> 件</span>
-        </div>
-        <div class="progress-text">
-          <span id="progress-detail">通算 0件</span>
-          <span id="progress-label"><b>0</b>%</span>
-        </div>
-        <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
-        <div style="font-size:11px; color:var(--muted2); margin-top:8px; line-height:1.5;">
-          複数日イベントの場合は「前日まで」に昨日までのMNP獲得数を入力。今日のMNPは自動で加算されます（進捗は獲得内のMNPのみでカウントします）
-        </div>
+    <header class="head">
+      <div>
+        <div class="eyebrow">SIEG OPS BOARD</div>
+        <h1>日報</h1>
       </div>
+      <label class="date-pill" for="date">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+        <span id="date-text"></span>
+        <input type="date" id="date" aria-label="入店日">
+      </label>
+    </header>
+
+    <div class="notice" id="notice" hidden>
+      <span id="notice-text"></span>
+      <button type="button" id="notice-clear">クリア</button>
     </div>
 
-    <div class="field">
-      <div class="label">NOTE / 所感</div>
+    <section class="profile">
+      <div class="profile-view" id="profile-view">
+        <div class="avatar" id="avatar"></div>
+        <div class="who">
+          <div class="who-name" id="who-name"></div>
+          <div class="who-sub" id="who-sub"></div>
+        </div>
+        <button type="button" class="link-btn" id="profile-change">変更</button>
+      </div>
+      <div class="profile-edit" id="profile-edit" hidden>
+        <div class="group" id="g-name">
+          <div class="group-label">名前 <span class="req">必須</span> <span class="err">選んでください</span></div>
+          <div class="chips" id="name-chips"></div>
+        </div>
+        <div class="group" id="g-carrier">
+          <div class="group-label">キャリア <span class="req">必須</span> <span class="err">選んでください</span></div>
+          <div class="chips" id="carrier-chips"></div>
+        </div>
+        <div class="group" id="g-place">
+          <div class="group-label"><label for="place">稼働場所</label> <span class="req">必須</span> <span class="err">入力してください</span></div>
+          <input type="text" class="text-input" id="place" placeholder="例：ソフトバンク下通" autocomplete="off">
+        </div>
+        <div class="done-row" id="profile-done-row"><button type="button" class="solid-btn" id="profile-done">決定</button></div>
+      </div>
+    </section>
+
+    <section class="score" aria-label="今日の実績">
+      <div><div class="k">アプローチ</div><div class="v num" id="sc-approach">0</div></div>
+      <div><div class="k">獲得</div><div class="v num" id="sc-gain">0</div></div>
+      <div><div class="k">成約率</div><div class="v num" id="sc-rate">—</div></div>
+    </section>
+
+    <div class="sec-head"><h2>獲得</h2><span class="total"><b class="num" id="t-gain">0</b> 件</span></div>
+    <div class="tiles" id="mnp-tile"></div>
+    <div class="tiles four" id="gain-tiles"></div>
+    <button type="button" class="target-row" id="target-row"></button>
+
+    <div class="sec-head"><h2>アプローチ</h2><span class="total"><b class="num" id="t-approach">0</b> 件</span></div>
+    <div class="tiles two" id="approach-tiles"></div>
+    <div class="hint">タイルのどこを押しても＋1　・　長押しで数字を直接入力<br>入力内容はこの端末に自動で保存されます</div>
+
+    <section class="note-card">
+      <div class="group-label"><label for="note">所感</label></div>
       <textarea id="note" placeholder="今日良かったこと・課題・明日やることなど"></textarea>
+    </section>
+
+    <div class="foot">SIEG OPERATIONS PORTAL ★ KUMAMOTO</div>
+  </div>
+
+  <!-- ═══ 完了画面 ═══ -->
+  <div class="stack" id="done-screen" hidden>
+    <div class="done-hero">
+      <div class="check" id="done-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path id="done-path" d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+      <h2 id="done-title">Discordに送信しました</h2>
+      <p id="done-note"></p>
+      <div class="achieved" id="achieved" hidden>MNP目標を達成しました</div>
     </div>
-
-    <button class="submit-btn" id="submit" onclick="goConfirm()">日報を作成する</button>
-    <div class="msg" id="msg"></div>
-
+    <section class="month" id="month">
+      <div class="month-title" id="month-title">今月の成績</div>
+      <div class="month-grid">
+        <div><div class="k">MNP合計</div><div class="v num"><span id="m-mnp">0</span><small>件</small></div></div>
+        <div><div class="k">稼働日数</div><div class="v num"><span id="m-days">0</span><small>日</small></div></div>
+        <div><div class="k">MNP平均</div><div class="v num"><span id="m-avg">0</span><small>件/日</small></div></div>
+      </div>
+      <div class="compare" id="compare"></div>
+    </section>
+    <details class="copy" id="copy-details">
+      <summary>控えのテキストを表示</summary>
+      <pre id="copy-text"></pre>
+      <div class="copy-wrap"><button type="button" class="outline-btn" id="copy-btn">テキストをコピー</button></div>
+    </details>
+    <button type="button" class="primary" id="again">もう一件入力する</button>
   </div>
-
-  <!-- ═══ 確認画面 ═══ -->
-  <div class="card confirm-screen" id="confirm-screen">
-    <div class="confirm-badge"><span class="dot"></span>この内容で送信します</div>
-    <div class="summary" id="summary"></div>
-    <button class="submit-btn" id="send-btn" onclick="send()">Discordに送信する</button>
-    <div class="msg" id="confirm-msg"></div>
-    <a class="again-link" onclick="backToForm()">‹ 修正する</a>
-  </div>
-
-  <!-- ═══ 完成画面 ═══ -->
-  <div class="card done-screen" id="done-screen">
-    <div class="done-badge" id="done-badge"><span class="dot"></span><span id="done-badge-text">送信しました</span></div>
-    <div class="done-note" id="done-note"></div>
-    <div class="copy-box" id="copy-box"></div>
-    <button class="copy-btn" id="copy-btn" onclick="copyText()">📋 テキストをコピー</button>
-    <a class="again-link" onclick="resetForm()">‹ もう一件入力する</a>
-  </div>
-
-  <div class="foot">SIEG OPERATIONS PORTAL ★ KUMAMOTO</div>
-
 </div>
+
+<div class="bar" id="bar">
+  <div class="bar-inner"><button type="button" class="primary" id="to-confirm">内容を確認する</button></div>
+</div>
+
+<!-- ═══ シート ═══ -->
+<div class="scrim" id="scrim" hidden></div>
+
+<div class="sheet" id="sheet-confirm" hidden role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+  <div class="sheet-inner">
+    <div class="grabber"></div>
+    <div>
+      <h3 id="confirm-title">この内容で送信します</h3>
+      <div class="sub">日報チャンネルにはこのように表示されます</div>
+    </div>
+    <div class="dc" id="dc-preview"></div>
+    <div class="msg" id="confirm-msg" hidden></div>
+    <div class="actions">
+      <button type="button" class="primary" id="send">Discordに送信する</button>
+      <button type="button" class="text-btn" data-close>修正する</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="sheet-edit" hidden role="dialog" aria-modal="true" aria-labelledby="edit-title">
+  <div class="sheet-inner">
+    <div class="grabber"></div>
+    <h3 id="edit-title">件数を入力</h3>
+    <div class="stepper">
+      <button type="button" id="edit-minus" aria-label="1減らす">−</button>
+      <input type="number" class="num" id="edit-value" inputmode="numeric" min="0" aria-label="件数">
+      <button type="button" id="edit-plus" aria-label="1増やす">＋</button>
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="edit-save">決定</button>
+      <button type="button" class="text-btn" data-close>キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<div class="sheet" id="sheet-target" hidden role="dialog" aria-modal="true" aria-labelledby="target-title">
+  <div class="sheet-inner">
+    <div class="grabber"></div>
+    <div>
+      <h3 id="target-title">MNP目標</h3>
+      <div class="sub">複数日イベントのときに使います。今日のMNPは自動で加算され、同じ稼働場所で続けて送ると翌日に引き継がれます</div>
+    </div>
+    <div class="two-inputs">
+      <div><label for="target">目標</label><input type="number" class="text-input" id="target" inputmode="numeric" min="0" placeholder="0"></div>
+      <div><label for="prev">前日までのMNP</label><input type="number" class="text-input" id="prev" inputmode="numeric" min="0" placeholder="0"></div>
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="target-save">設定する</button>
+      <button type="button" class="text-btn" id="target-clear">目標を外す</button>
+    </div>
+  </div>
+</div>
+
+<canvas id="confetti" hidden></canvas>
 
 <script>
   // ═══════════════════════════════════════
@@ -450,139 +582,394 @@
   var NAMES = ['鈴木', '毛利', '山口', '福山', '古川'];
   var CARRIERS = ['Softbank', 'docomo', 'au'];
   var APPROACH_ITEMS = ['キャッチ', '着座'];                    // アプローチの内訳
-  var GAIN_ITEMS = ['MNP', '新規', '固定', '電気', 'カード'];   // 獲得の内訳
+  var GAIN_ITEMS = ['MNP', '新規', '固定', '電気', 'カード'];   // 獲得の内訳（先頭のMNPは大きいタイルで表示）
+
+  // MNP目標を翌日以降に引き継ぐ日数（同じ稼働場所で、前回送信からこの日数以内なら引き継ぐ）
+  var EVENT_CARRY_DAYS = 3;
 
   // ═══════════════════════════════════════
 
-  var selName = '';
-  var selCarrier = '';
-  var approachCounts = {};
-  var gainCounts = {};
+  // この端末に保存するもの
+  //   PREFS : 前回送信した名前・キャリア・稼働場所（次回の初期値）
+  //   EVENT : 前回送信したMNP目標と通算（複数日イベントの引き継ぎ用）
+  //   DRAFT : 入力途中の内容（ブラウザを閉じても消えないように）
+  var PREFS_KEY = 'nippou.prefs.v1';
+  var EVENT_KEY = 'nippou.event.v1';
+  var DRAFT_KEY = 'nippou.draft.v2';
 
-  // 入店日の初期値：今日
-  (function() {
+  function load(key) {
+    try { var s = localStorage.getItem(key); return s ? JSON.parse(s) : null; } catch (e) { return null; }
+  }
+  function store(key, v) {
+    try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {}
+  }
+  function drop(key) {
+    try { localStorage.removeItem(key); } catch (e) {}
+  }
+
+  function $(id) { return document.getElementById(id); }
+  function buzz(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} }
+  function reduced() { return !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches); }
+  function toInt(v) { var n = parseInt(v, 10); return isNaN(n) ? 0 : Math.max(0, Math.min(9999, n)); }
+
+  function todayStr() {
     var d = new Date();
-    var y = d.getFullYear();
-    var m = String(d.getMonth() + 1).padStart(2, '0');
-    var dd = String(d.getDate()).padStart(2, '0');
-    document.getElementById('date').value = y + '-' + m + '-' + dd;
-  })();
-
-  function buildChips(boxId, list, onPick) {
-    var box = document.getElementById(boxId);
-    list.forEach(function(v) {
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'chip';
-      b.textContent = v;
-      b.onclick = function() {
-        box.querySelectorAll('.chip').forEach(function(c) { c.classList.remove('on'); });
-        b.classList.add('on');
-        onPick(v);
-      };
-      box.appendChild(b);
-    });
-  }
-  buildChips('name-chips', NAMES, function(v) { selName = v; });
-  buildChips('carrier-chips', CARRIERS, function(v) { selCarrier = v; });
-
-  function buildCounters(boxId, items, counts, onChange) {
-    var box = document.getElementById(boxId);
-    items.forEach(function(label) {
-      counts[label] = 0;
-      var row = document.createElement('div');
-      row.className = 'counter';
-
-      var lab = document.createElement('div');
-      lab.className = 'counter-label';
-      lab.textContent = label;
-
-      var minus = document.createElement('button');
-      minus.type = 'button';
-      minus.className = 'counter-btn';
-      minus.textContent = '−';
-
-      var num = document.createElement('div');
-      num.className = 'counter-num';
-      num.textContent = '0';
-
-      var plus = document.createElement('button');
-      plus.type = 'button';
-      plus.className = 'counter-btn';
-      plus.textContent = '＋';
-
-      function update(delta) {
-        counts[label] = Math.max(0, counts[label] + delta);
-        num.textContent = counts[label];
-        num.classList.toggle('nonzero', counts[label] > 0);
-        row.classList.toggle('active', counts[label] > 0);
-        onChange();
-      }
-      minus.onclick = function() { update(-1); };
-      plus.onclick = function() { update(1); };
-
-      row.appendChild(lab);
-      row.appendChild(minus);
-      row.appendChild(num);
-      row.appendChild(plus);
-      box.appendChild(row);
-    });
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
 
-  function sum(counts) {
-    var t = 0;
-    for (var k in counts) t += counts[k];
-    return t;
+  // 'yyyy-mm-dd' 同士の日数差（b - a）。読めなければ NaN
+  function daysBetween(a, b) {
+    var pa = String(a || '').split('-'), pb = String(b || '').split('-');
+    var ta = Date.UTC(Number(pa[0]), Number(pa[1]) - 1, Number(pa[2]));
+    var tb = Date.UTC(Number(pb[0]), Number(pb[1]) - 1, Number(pb[2]));
+    return Math.round((tb - ta) / 86400000);
   }
-
-  function refreshTotals() {
-    document.getElementById('approach-total').textContent = sum(approachCounts) + '件';
-    document.getElementById('gain-total').textContent = sum(gainCounts) + '件';
-    refreshProgress();
-  }
-
-  function refreshProgress() {
-    var target = parseInt(document.getElementById('target').value, 10) || 0;
-    var prev = parseInt(document.getElementById('prev').value, 10) || 0;
-    var mnp = gainCounts['MNP'] || 0;
-    var cumulative = prev + mnp;
-    var pct = target > 0 ? Math.round(cumulative / target * 100) : 0;
-    document.getElementById('progress-detail').textContent = 'MNP通算 ' + cumulative + '件';
-    document.getElementById('progress-label').innerHTML = '<b>' + pct + '</b>%';
-    var fill = document.getElementById('progress-fill');
-    fill.style.width = Math.min(100, pct) + '%';
-    fill.classList.toggle('done', target > 0 && cumulative >= target);
-  }
-
-  buildCounters('approach-counters', APPROACH_ITEMS, approachCounts, refreshTotals);
-  buildCounters('gain-counters', GAIN_ITEMS, gainCounts, refreshTotals);
-  document.getElementById('target').addEventListener('input', refreshProgress);
-  document.getElementById('prev').addEventListener('input', refreshProgress);
-
-  function showMsg(ok, text, id) {
-    var el = document.getElementById(id || 'msg');
-    el.className = 'msg ' + (ok ? 'ok' : 'ng');
-    el.textContent = text;
-  }
-
-  function toBreakdown(counts) {
-    var arr = [];
-    for (var k in counts) arr.push({ label: k, count: counts[k] });
-    return arr;
-  }
-
-  // 送信待ちの内容。確認画面で表示したものと、実際に送るものを一致させるため
-  // goConfirm の時点で組み立てて保持し、send はこれをそのまま送る。
-  var pendingPayload = null;
 
   // 'yyyy-mm-dd' → '8/10（月）'（GAS側の表記に合わせる）
   function fmtDate(v) {
-    if (!v) return '';
-    var p = v.split('-');
+    var p = String(v || '').split('-');
     var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
     if (isNaN(d.getTime())) return '';
-    return (d.getMonth() + 1) + '/' + d.getDate()
-      + '（' + ['日', '月', '火', '水', '木', '金', '土'][d.getDay()] + '）';
+    return (d.getMonth() + 1) + '/' + d.getDate() + '（' + '日月火水木金土'[d.getDay()] + '）';
+  }
+
+  function zeroCounts(items) { var o = {}; items.forEach(function(k) { o[k] = 0; }); return o; }
+  function sum(o) { var t = 0; for (var k in o) t += o[k]; return t; }
+
+  // ─── 入力内容 ───
+  var state;
+  var editingProfile = false;
+
+  // 新しく入力を始めるときの状態。前回の名前・キャリア・稼働場所と、
+  // 続いているイベントのMNP目標を初期値として入れる
+  function freshState() {
+    var s = {
+      date: todayStr(), name: '', carrier: '', place: '',
+      approach: zeroCounts(APPROACH_ITEMS), gain: zeroCounts(GAIN_ITEMS),
+      target: 0, prev: 0, note: ''
+    };
+
+    var prefs = load(PREFS_KEY);
+    if (prefs) {
+      if (NAMES.indexOf(prefs.name) >= 0) s.name = prefs.name;
+      if (CARRIERS.indexOf(prefs.carrier) >= 0) s.carrier = prefs.carrier;
+      s.place = String(prefs.place || '');
+    }
+
+    var ev = load(EVENT_KEY);
+    if (ev && toInt(ev.target) > 0 && ev.place === s.place) {
+      var gap = daysBetween(ev.date, s.date);
+      if (gap === 0) {
+        // 同じ日にもう一度送る場合は、前回と同じ「前日まで」
+        s.target = toInt(ev.target); s.prev = toInt(ev.prev);
+      } else if (gap >= 1 && gap <= EVENT_CARRY_DAYS) {
+        // 翌日以降は、前回の通算がそのまま「前日まで」になる
+        s.target = toInt(ev.target); s.prev = toInt(ev.cumulative);
+      }
+    }
+    return s;
+  }
+
+  function hasProgress(s) {
+    return sum(s.approach) + sum(s.gain) > 0 || String(s.note || '').trim() !== '';
+  }
+
+  // 保存済みの下書きを state に重ねる（知らない項目は無視する）
+  function applyDraft(s, d) {
+    if (d.date) s.date = String(d.date);
+    if (NAMES.indexOf(d.name) >= 0) s.name = d.name;
+    if (CARRIERS.indexOf(d.carrier) >= 0) s.carrier = d.carrier;
+    s.place = String(d.place || '');
+    APPROACH_ITEMS.forEach(function(k) { s.approach[k] = toInt(d.approach && d.approach[k]); });
+    GAIN_ITEMS.forEach(function(k) { s.gain[k] = toInt(d.gain && d.gain[k]); });
+    s.target = toInt(d.target);
+    s.prev = s.target ? toInt(d.prev) : 0;
+    s.note = String(d.note || '');
+  }
+
+  function saveDraft() {
+    if (hasProgress(state)) store(DRAFT_KEY, state);
+    else drop(DRAFT_KEY);
+  }
+
+  function profileComplete() { return !!(state.name && state.carrier && state.place.trim()); }
+
+  function mnpInfo() {
+    var mnp = state.gain['MNP'] || 0;
+    var cum = state.prev + mnp;
+    var pct = state.target > 0 ? Math.round(cum / state.target * 100) : 0;
+    return { mnp: mnp, cum: cum, pct: pct };
+  }
+
+  // ─── 日付 ───
+  function renderDate() { $('date').value = state.date; $('date-text').textContent = fmtDate(state.date) || '日付を選択'; }
+  $('date').addEventListener('change', function() {
+    if (!this.value) return;
+    state.date = this.value; renderDate(); saveDraft();
+  });
+
+  // ─── 基本情報 ───
+  function buildChips(boxId, list, key, groupId) {
+    var box = $(boxId);
+    list.forEach(function(v) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.textContent = v; b.dataset.value = v;
+      b.addEventListener('click', function() {
+        state[key] = v;
+        $(groupId).classList.remove('invalid');
+        renderProfile(); saveDraft();
+      });
+      box.appendChild(b);
+    });
+  }
+  buildChips('name-chips', NAMES, 'name', 'g-name');
+  buildChips('carrier-chips', CARRIERS, 'carrier', 'g-carrier');
+
+  // 名前・キャリア・稼働場所がそろっていれば1行にまとめ、そろっていなければ選択欄を開く
+  function renderProfile() {
+    var showEdit = editingProfile || !profileComplete();
+    $('profile-view').hidden = showEdit;
+    $('profile-edit').hidden = !showEdit;
+    $('avatar').textContent = state.name ? state.name.charAt(0) : '?';
+    $('who-name').textContent = state.name;
+    $('who-sub').textContent = state.carrier + '　・　' + state.place;
+    document.querySelectorAll('#name-chips .chip').forEach(function(c) { c.setAttribute('aria-pressed', String(c.dataset.value === state.name)); });
+    document.querySelectorAll('#carrier-chips .chip').forEach(function(c) { c.setAttribute('aria-pressed', String(c.dataset.value === state.carrier)); });
+    if ($('place') !== document.activeElement) $('place').value = state.place;
+    $('profile-done-row').hidden = !profileComplete();
+  }
+  $('profile-change').addEventListener('click', function() { editingProfile = true; renderProfile(); });
+  $('profile-done').addEventListener('click', function() { editingProfile = false; renderProfile(); });
+  $('place').addEventListener('input', function() {
+    state.place = this.value;
+    $('g-place').classList.remove('invalid');
+    $('profile-done-row').hidden = !profileComplete();
+    saveDraft();
+  });
+
+  // ─── タイル ───
+  var tiles = { approach: {}, gain: {} };
+
+  function buildTile(box, group, label, hero) {
+    var wrap = document.createElement('div');
+    wrap.className = 'tile' + (hero ? ' hero' : '');
+
+    var hit = document.createElement('button');
+    hit.type = 'button'; hit.className = 'tile-hit';
+    hit.setAttribute('aria-label', label + 'を1増やす');
+
+    var lab = document.createElement('span'); lab.className = 't-label'; lab.textContent = label;
+    var num = document.createElement('span'); num.className = 't-num num';
+    var plusMark = document.createElement('span');
+    plusMark.className = 'tile-plus'; plusMark.textContent = '＋';
+    plusMark.setAttribute('aria-hidden', 'true');
+
+    if (hero) {
+      hit.appendChild(lab); hit.appendChild(num); hit.appendChild(plusMark);
+      var prog = document.createElement('span'); prog.className = 'mnp-prog'; prog.id = 'mnp-prog';
+      prog.innerHTML = '<span class="row"><span id="mnp-cum"></span><b class="num" id="mnp-pct"></b></span>'
+        + '<span class="track"><span class="fill" id="mnp-fill"></span></span>';
+      hit.appendChild(prog);
+    } else if (box.classList.contains('four')) {
+      hit.appendChild(num); hit.appendChild(lab); hit.appendChild(plusMark);
+    } else {
+      hit.appendChild(lab); hit.appendChild(num); hit.appendChild(plusMark);
+    }
+
+    var minus = document.createElement('button');
+    minus.type = 'button'; minus.className = 'tile-minus'; minus.textContent = '−';
+    minus.setAttribute('aria-label', label + 'を1減らす');
+
+    // タップで＋1、長押しで直接入力
+    var timer = null, longFired = false;
+    hit.addEventListener('pointerdown', function() {
+      longFired = false;
+      timer = setTimeout(function() { longFired = true; buzz(20); openEdit(group, label); }, 480);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function(ev) {
+      hit.addEventListener(ev, function() { clearTimeout(timer); });
+    });
+    hit.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+    hit.addEventListener('click', function() {
+      if (longFired) { longFired = false; return; }
+      change(group, label, 1);
+      floatPlus(wrap, plusMark);
+    });
+    minus.addEventListener('click', function() { change(group, label, -1); });
+
+    wrap.appendChild(hit); wrap.appendChild(minus);
+    box.appendChild(wrap);
+    tiles[group][label] = { wrap: wrap, num: num };
+  }
+
+  GAIN_ITEMS.forEach(function(l, i) {
+    if (i === 0) buildTile($('mnp-tile'), 'gain', l, true);
+    else buildTile($('gain-tiles'), 'gain', l, false);
+  });
+  APPROACH_ITEMS.forEach(function(l) { buildTile($('approach-tiles'), 'approach', l, false); });
+
+  function change(group, label, delta) {
+    var before = state[group][label];
+    state[group][label] = Math.max(0, Math.min(9999, before + delta));
+    if (state[group][label] === before) return;
+    buzz(10);
+    renderCounts();
+    saveDraft();
+    var n = tiles[group][label].num;
+    if (!reduced()) { n.classList.remove('bump'); void n.offsetWidth; n.classList.add('bump'); }
+  }
+
+  function floatPlus(wrap, mark) {
+    if (reduced()) return;
+    var s = document.createElement('span');
+    s.className = 'plus-one'; s.textContent = '+1';
+    s.style.left = (mark.offsetLeft + mark.offsetWidth / 2 - 10) + 'px';
+    s.style.top = (mark.offsetTop + mark.offsetHeight / 2 - 12) + 'px';
+    wrap.appendChild(s);
+    setTimeout(function() { s.remove(); }, 650);
+  }
+
+  function renderCounts() {
+    ['approach', 'gain'].forEach(function(g) {
+      for (var l in tiles[g]) {
+        var n = state[g][l];
+        tiles[g][l].num.textContent = n;
+        tiles[g][l].wrap.classList.toggle('zero', n === 0);
+      }
+    });
+    var a = sum(state.approach), g = sum(state.gain);
+    $('sc-approach').textContent = a;
+    $('sc-gain').textContent = g;
+    $('t-approach').textContent = a;
+    $('t-gain').textContent = g;
+    $('sc-approach').classList.toggle('dim', a === 0);
+    $('sc-gain').classList.toggle('dim', g === 0);
+    var rate = $('sc-rate');
+    if (a > 0) { rate.innerHTML = Math.round(g / a * 100) + '<small>%</small>'; rate.classList.remove('dim'); }
+    else { rate.textContent = '—'; rate.classList.add('dim'); }
+
+    var m = mnpInfo();
+    $('mnp-prog').hidden = !(state.target > 0);
+    $('mnp-cum').textContent = '通算 ' + m.cum + ' / ' + state.target;
+    $('mnp-pct').textContent = m.pct + '%';
+    $('mnp-fill').style.width = Math.min(100, m.pct) + '%';
+    $('mnp-fill').classList.toggle('done', state.target > 0 && m.cum >= state.target);
+
+    var row = $('target-row');
+    row.classList.toggle('set', state.target > 0);
+    row.innerHTML = state.target > 0
+      ? '<span class="grow">MNP目標 <b class="num">' + state.target + '</b>件　・　前日まで <b class="num">' + state.prev + '</b>件</span><span>編集</span>'
+      : '<span class="grow">＋ MNP目標を設定する（イベント時）</span>';
+  }
+
+  // ─── シート ───
+  var openSheetEl = null;
+  function openSheet(id) {
+    closeSheet();
+    openSheetEl = $(id);
+    $('scrim').hidden = false;
+    openSheetEl.hidden = false;
+  }
+  function closeSheet() {
+    if (openSheetEl) openSheetEl.hidden = true;
+    openSheetEl = null;
+    $('scrim').hidden = true;
+  }
+  $('scrim').addEventListener('click', function() { if (!sending) closeSheet(); });
+  document.querySelectorAll('[data-close]').forEach(function(b) { b.addEventListener('click', closeSheet); });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && !sending) closeSheet(); });
+
+  // 件数の直接入力
+  var editing = null;
+  function openEdit(group, label) {
+    editing = { group: group, label: label };
+    $('edit-title').textContent = label + 'の件数';
+    $('edit-value').value = state[group][label];
+    openSheet('sheet-edit');
+  }
+  $('edit-minus').addEventListener('click', function() { $('edit-value').value = Math.max(0, toInt($('edit-value').value) - 1); });
+  $('edit-plus').addEventListener('click', function() { $('edit-value').value = Math.min(9999, toInt($('edit-value').value) + 1); });
+  $('edit-save').addEventListener('click', function() {
+    if (editing) { state[editing.group][editing.label] = toInt($('edit-value').value); renderCounts(); saveDraft(); }
+    closeSheet();
+  });
+
+  // MNP目標
+  $('target-row').addEventListener('click', function() {
+    $('target').value = state.target || '';
+    $('prev').value = state.target ? state.prev : '';
+    openSheet('sheet-target');
+    setTimeout(function() { $('target').focus(); }, 50);
+  });
+  $('target-save').addEventListener('click', function() {
+    state.target = toInt($('target').value);
+    state.prev = state.target ? toInt($('prev').value) : 0;
+    renderCounts(); saveDraft(); closeSheet();
+  });
+  // 外したら目標も消す（見えないところで目標が送られないように）
+  $('target-clear').addEventListener('click', function() {
+    state.target = 0; state.prev = 0;
+    renderCounts(); saveDraft(); closeSheet();
+  });
+
+  $('note').addEventListener('input', function() { state.note = this.value; saveDraft(); });
+
+  // ─── 下書き ───
+  function showNotice(draftDate) {
+    var stale = draftDate && draftDate !== todayStr();
+    $('notice').hidden = false;
+    $('notice').classList.toggle('warn', !!stale);
+    $('notice-text').textContent = stale
+      ? fmtDate(draftDate) + 'の未送信の日報を復元しました'
+      : '入力途中の内容を復元しました';
+  }
+  $('notice-clear').addEventListener('click', function() {
+    drop(DRAFT_KEY);
+    state = freshState();
+    editingProfile = false;
+    renderAll();
+    $('notice').hidden = true;
+  });
+
+  function renderAll() {
+    renderDate();
+    renderProfile();
+    renderCounts();
+    $('note').value = state.note;
+    ['g-name', 'g-carrier', 'g-place'].forEach(function(id) { $(id).classList.remove('invalid'); });
+  }
+
+  // ─── 初期化 ───
+  state = freshState();
+  (function() {
+    var draft = load(DRAFT_KEY);
+    if (draft && typeof draft === 'object') {
+      applyDraft(state, draft);
+      if (hasProgress(state)) showNotice(state.date);
+      else state = freshState();
+    }
+  })();
+  renderAll();
+
+  // ─── 確認 ───
+  // 未入力の項目があれば選択欄を開いて赤くし、最初の1つまでスクロールする
+  function validate() {
+    var checks = [['g-name', !state.name], ['g-carrier', !state.carrier], ['g-place', !state.place.trim()]];
+    if (checks.every(function(c) { return !c[1]; })) return true;
+    editingProfile = true; renderProfile();
+    var first = null;
+    checks.forEach(function(c) {
+      $(c[0]).classList.toggle('invalid', c[1]);
+      if (c[1] && !first) first = $(c[0]);
+    });
+    first.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'center' });
+    first.classList.remove('shake'); void first.offsetWidth; first.classList.add('shake');
+    buzz([30, 40, 30]);
+    return false;
+  }
+
+  function toBreakdown(items, counts) {
+    return items.map(function(k) { return { label: k, count: counts[k] || 0 }; });
   }
 
   // [{label,count}] → 'キャッチ6 / 店内2'（0件は省く）
@@ -591,197 +978,244 @@
       .map(function(x) { return x.label + x.count; })
       .join(' / ');
   }
-
   function sumBreakdown(arr) {
     return arr.reduce(function(s, x) { return s + (Number(x.count) || 0); }, 0);
   }
-
-  function addRow(label, value, subValue) {
-    var row = document.createElement('div');
-    row.className = 'summary-row' + (value ? '' : ' empty');
-    var k = document.createElement('div');
-    k.className = 'k';
-    k.textContent = label;
-    var v = document.createElement('div');
-    v.className = 'v';
-    v.textContent = value || '（未入力）';
-    if (value && subValue) {
-      var sub = document.createElement('span');
-      sub.className = 'sub-v';
-      sub.textContent = subValue;
-      v.appendChild(sub);
-    }
-    row.appendChild(k);
-    row.appendChild(v);
-    document.getElementById('summary').appendChild(row);
+  function countOf(arr, label) {
+    for (var i = 0; i < arr.length; i++) if (arr[i].label === label) return Number(arr[i].count) || 0;
+    return 0;
   }
 
-  function goConfirm() {
-    if (!selName) { showMsg(false, '名前を選んでください'); return; }
-    if (!selCarrier) { showMsg(false, 'キャリアを選んでください'); return; }
-    var place = document.getElementById('place').value.trim();
-    if (!place) { showMsg(false, '稼働場所を入力してください'); return; }
+  // 進捗バー "■■■□□□□□□□"（GAS の bar_ と同じ）
+  function bar10(pct) {
+    var f = Math.max(0, Math.min(10, Math.round(pct / 10)));
+    return Array(f + 1).join('■') + Array(10 - f + 1).join('□');
+  }
 
-    var approaches = toBreakdown(approachCounts);
-    var gains = toBreakdown(gainCounts);
-    var target = parseInt(document.getElementById('target').value, 10) || 0;
-    var prev = parseInt(document.getElementById('prev').value, 10) || 0;
-    var note = document.getElementById('note').value.trim();
+  // 送信待ちの内容。確認画面で表示したものと、実際に送るものを一致させるため
+  // 確認を開いた時点で組み立てて保持し、送信はこれをそのまま送る。
+  var pendingPayload = null;
+
+  // GAS の sendToDiscord_ と同じ組み立て。今月通算はシートから集計するので送信時に決まる
+  function discordFields(p) {
+    var a = sumBreakdown(p.approaches), g = sumBreakdown(p.gains);
+    var mnp = countOf(p.gains, 'MNP'), cum = p.prev + mnp;
+    var pct = p.target > 0 ? Math.round(cum / p.target * 100) : 0;
+    var withTotal = function(total, bd) { return '**' + total + '件**' + (bd ? '\n' + bd : ''); };
+    var f = [
+      { name: '📍 稼働場所', value: p.place, inline: true },
+      { name: '📶 キャリア', value: p.carrier, inline: true },
+      { name: '🚶 アプローチ', value: withTotal(a, fmtBreakdown(p.approaches)) },
+      { name: '🎯 獲得', value: withTotal(g, fmtBreakdown(p.gains)) }
+    ];
+    if (p.target > 0) {
+      f.push({ name: '📊 MNP進捗', value: bar10(pct) + '　' + pct + '%\n通算 ' + cum + '/' + p.target + '件（前日 ' + p.prev + '件 ＋ 本日MNP ' + mnp + '件）' });
+    }
+    f.push({ name: '📈 今月通算', value: '送信時にスプレッドシートから集計されます', later: true });
+    if (p.note) f.push({ name: '💬 所感', value: p.note });
+    return { fields: f, pct: pct };
+  }
+
+  // **太字** だけを解釈して安全に描画する
+  function richText(el, text) {
+    String(text).split(/(\*\*[^*]+\*\*)/).forEach(function(part) {
+      if (/^\*\*[^*]+\*\*$/.test(part)) {
+        var b = document.createElement('b'); b.textContent = part.slice(2, -2); el.appendChild(b);
+      } else if (part) {
+        el.appendChild(document.createTextNode(part));
+      }
+    });
+  }
+
+  function renderPreview(p) {
+    var built = discordFields(p);
+    var color = '#8A93A6';                                       // 目標なし / 50%未満
+    if (p.target > 0 && built.pct >= 100) color = '#4CD97B';     // 目標達成
+    else if (p.target > 0 && built.pct >= 50) color = '#E8A33D'; // 50%以上
+    var now = new Date();
+    var hm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+
+    var root = $('dc-preview');
+    root.innerHTML = '<div class="dc-msg"><div class="dc-avatar">日</div><div class="dc-main">'
+      + '<div class="dc-name">日報 <span class="dc-tag">APP</span><span class="dc-time">今日 ' + hm + '</span></div>'
+      + '<div class="dc-embed" id="dc-embed"><div class="dc-title" id="dc-title"></div><div class="dc-fields" id="dc-fields"></div><div class="dc-foot" id="dc-foot"></div></div>'
+      + '</div></div>';
+    $('dc-embed').style.borderLeftColor = color;
+    $('dc-title').textContent = '📋 日報｜' + p.name + '　' + fmtDate(p.date) + (p.target > 0 && built.pct >= 100 ? ' 🎉' : '');
+    built.fields.forEach(function(f) {
+      var d = document.createElement('div');
+      d.className = 'dc-field' + (f.inline ? ' inline' : '');
+      var n = document.createElement('div'); n.className = 'dc-fname'; n.textContent = f.name;
+      var v = document.createElement('div'); v.className = 'dc-fval' + (f.later ? ' later' : ''); richText(v, f.value);
+      d.appendChild(n); d.appendChild(v);
+      $('dc-fields').appendChild(d);
+    });
+    $('dc-foot').textContent = now.getFullYear() + '/' + String(now.getMonth() + 1).padStart(2, '0') + '/'
+      + String(now.getDate()).padStart(2, '0') + ' ' + hm + ' 送信';
+  }
+
+  $('to-confirm').addEventListener('click', function() {
+    if (!validate()) return;
+    editingProfile = false; renderProfile();
 
     pendingPayload = {
-      date: document.getElementById('date').value,
-      name: selName,
-      carrier: selCarrier,
-      place: place,
-      approaches: approaches,
-      gains: gains,
-      target: target,
-      prev: prev,
-      note: note
+      date: state.date,
+      name: state.name,
+      carrier: state.carrier,
+      place: state.place.trim(),
+      approaches: toBreakdown(APPROACH_ITEMS, state.approach),
+      gains: toBreakdown(GAIN_ITEMS, state.gain),
+      target: state.target,
+      prev: state.target > 0 ? state.prev : 0,
+      note: state.note.trim()
     };
+    renderPreview(pendingPayload);
+    $('confirm-msg').hidden = true;
+    openSheet('sheet-confirm');
+  });
 
-    var box = document.getElementById('summary');
-    box.innerHTML = '';
-    addRow('DATE', fmtDate(pendingPayload.date));
-    addRow('NAME', selName);
-    addRow('CARRIER', selCarrier);
-    addRow('PLACE', place);
-    addRow('APPROACH', sumBreakdown(approaches) + '件', fmtBreakdown(approaches));
-    addRow('RESULTS', sumBreakdown(gains) + '件', fmtBreakdown(gains));
-    if (target > 0) {
-      var mnp = gainCounts['MNP'] || 0;
-      var cumulative = prev + mnp;
-      addRow('MNP',
-        cumulative + ' / ' + target + '件（' + Math.round(cumulative / target * 100) + '%）',
-        '前日まで ' + prev + '件 ＋ 本日MNP ' + mnp + '件');
-    }
-    addRow('NOTE', note);
-
-    document.getElementById('msg').className = 'msg';
-    document.getElementById('confirm-msg').className = 'msg';
-    document.getElementById('form-card').style.display = 'none';
-    document.getElementById('confirm-screen').classList.add('show');
-    window.scrollTo(0, 0);
-  }
-
-  function backToForm() {
-    document.getElementById('confirm-screen').classList.remove('show');
-    document.getElementById('form-card').style.display = 'block';
-    window.scrollTo(0, 0);
-  }
-
-  function send() {
-    if (!pendingPayload) { backToForm(); return; }
-
-    var btn = document.getElementById('send-btn');
-    btn.disabled = true;
-    btn.textContent = '送信中…';
-
-    var restore = function() {
-      btn.disabled = false;
-      btn.textContent = 'Discordに送信する';
-    };
+  // ─── 送信 ───
+  var sending = false;
+  $('send').addEventListener('click', function() {
+    if (!pendingPayload || sending) return;
+    var btn = this;
+    var payload = pendingPayload;
+    sending = true;
+    btn.disabled = true; btn.textContent = '送信中…';
+    var restore = function() { sending = false; btn.disabled = false; btn.textContent = 'Discordに送信する'; };
+    var fail = function(text) { $('confirm-msg').textContent = text; $('confirm-msg').hidden = false; restore(); };
 
     fetch(NIPPOU_API, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(pendingPayload)
+      body: JSON.stringify(payload)
     })
     .then(function(res) { return res.json(); })
     .then(function(data) {
       if (data && data.ok) {
-        showDone(data.text || '', data.discord);
-      } else {
-        showMsg(false, 'エラー：' + (data && data.error ? data.error : '不明なエラー'), 'confirm-msg');
+        rememberSent(payload);
         restore();
+        closeSheet();
+        showDone(data, payload);
+      } else {
+        fail('エラー：' + (data && data.error ? data.error : '不明なエラー'));
       }
     })
     .catch(function() {
-      showMsg(false, '通信エラーが発生しました。もう一度お試しください', 'confirm-msg');
-      restore();
+      fail('通信エラーが発生しました。入力内容は保存されているので、電波の良い場所でもう一度お試しください');
     });
+  });
+
+  // 送信できたら、次回の初期値を覚えて下書きを消す
+  function rememberSent(p) {
+    store(PREFS_KEY, { name: p.name, carrier: p.carrier, place: p.place });
+    if (p.target > 0) {
+      store(EVENT_KEY, { place: p.place, date: p.date, target: p.target, prev: p.prev, cumulative: p.prev + countOf(p.gains, 'MNP') });
+    } else {
+      drop(EVENT_KEY);
+    }
+    drop(DRAFT_KEY);
   }
 
-  function showDone(text, discordOk) {
-    document.getElementById('copy-box').textContent = text;
+  function showDone(data, p) {
+    // discord: true=投稿成功 / false=投稿失敗 / null・undefined=Discord未設定
+    var failed = (data.discord !== true);
+    $('done-icon').classList.toggle('warn', failed);
+    $('done-path').setAttribute('d', failed ? 'M12 6v8M12 18h.01' : 'M5 12.5l4.5 4.5L19 7.5');
+    $('done-title').textContent = failed ? '記録しました（Discord未送信）' : 'Discordに送信しました';
+    $('done-note').classList.toggle('warn', failed);
+    $('done-note').textContent = failed
+      ? 'スプレッドシートには記録済みですが、Discordへの投稿に失敗しました。下の控えをコピーして日報チャンネルに手動で貼り付けてください。'
+      : '日報チャンネルに投稿済みです。';
 
-    // discordOk: true=投稿成功 / false=投稿失敗 / null・undefined=Discord未設定
-    var badge = document.getElementById('done-badge');
-    var note = document.getElementById('done-note');
-    var failed = (discordOk !== true);
-    badge.classList.toggle('warn', failed);
-    note.classList.toggle('warn', failed);
-    document.getElementById('done-badge-text').textContent =
-      failed ? '記録しました（Discord未送信）' : 'Discordに送信しました';
-    note.textContent = failed
-      ? 'スプレッドシートには記録済みですが、Discordへの投稿に失敗しました。下のテキストをコピーして日報チャンネルに手動で貼り付けてください。'
-      : '日報チャンネルに投稿済みです。控えが必要な場合は下のテキストをコピーしてください。';
+    // 今月の成績（GASが返さない古いデプロイでは表示しない）
+    var hasStats = data.monthlyMnp != null && data.workDays != null;
+    $('month').hidden = !hasStats;
+    if (hasStats) {
+      var todayMnp = countOf(p.gains, 'MNP');
+      var avg = Number(data.mnpAvg) || 0;
+      $('month-title').textContent = '今月の成績（' + p.name + '）';
+      $('m-mnp').textContent = data.monthlyMnp;
+      $('m-days').textContent = data.workDays;
+      $('m-avg').textContent = avg;
+      var diff = Math.round((todayMnp - avg) * 10) / 10;
+      $('compare').innerHTML = '今日のMNP <b class="num">' + todayMnp + '</b>件　・　今月平均との差 '
+        + (diff > 0 ? '<span class="up num">+' + diff + '</span>' : '<span class="flat num">' + (diff === 0 ? '±0' : diff) + '</span>');
+    }
 
-    document.getElementById('form-card').style.display = 'none';
-    document.getElementById('confirm-screen').classList.remove('show');
-    document.getElementById('done-screen').classList.add('show');
+    var achieved = p.target > 0 && p.prev + countOf(p.gains, 'MNP') >= p.target;
+    $('achieved').hidden = !achieved;
+
+    $('copy-text').textContent = data.text || '';
+    $('copy-details').open = failed;
+
+    $('form-screen').hidden = true;
+    $('bar').hidden = true;
+    $('done-screen').hidden = false;
     window.scrollTo(0, 0);
+    if (achieved) confetti();
   }
 
-  function copyText() {
-    var text = document.getElementById('copy-box').textContent;
-    var btn = document.getElementById('copy-btn');
-    var done = function() {
-      btn.textContent = '✓ コピーしました';
-      btn.classList.add('copied');
-      setTimeout(function() {
-        btn.textContent = '📋 テキストをコピー';
-        btn.classList.remove('copied');
-      }, 2000);
+  $('copy-btn').addEventListener('click', function() {
+    var btn = this, text = $('copy-text').textContent;
+    var ok = function() {
+      btn.textContent = 'コピーしました'; btn.classList.add('copied');
+      setTimeout(function() { btn.textContent = 'テキストをコピー'; btn.classList.remove('copied'); }, 1800);
+    };
+    var fallback = function() {
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); ok(); } catch (e) {}
+      document.body.removeChild(ta);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done).catch(function() { fallbackCopy(text, done); });
+      navigator.clipboard.writeText(text).then(ok, fallback);
     } else {
-      fallbackCopy(text, done);
+      fallback();
     }
-  }
+  });
 
-  function fallbackCopy(text, done) {
-    var ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); done(); } catch (e) {}
-    document.body.removeChild(ta);
-  }
-
-  function resetForm() {
-    selName = ''; selCarrier = '';
-    document.querySelectorAll('#name-chips .chip, #carrier-chips .chip').forEach(function(c) { c.classList.remove('on'); });
-    document.getElementById('place').value = '';
-    document.getElementById('note').value = '';
-    document.getElementById('target').value = '';
-    document.getElementById('prev').value = '';
-    Object.keys(approachCounts).forEach(function(k) { approachCounts[k] = 0; });
-    Object.keys(gainCounts).forEach(function(k) { gainCounts[k] = 0; });
-    document.querySelectorAll('#approach-counters .counter-num, #gain-counters .counter-num').forEach(function(n) {
-      n.textContent = '0'; n.classList.remove('nonzero');
-    });
-    document.querySelectorAll('#approach-counters .counter, #gain-counters .counter').forEach(function(r) {
-      r.classList.remove('active');
-    });
-    refreshTotals();
+  $('again').addEventListener('click', function() {
+    state = freshState();
+    editingProfile = false;
     pendingPayload = null;
-    document.getElementById('msg').className = 'msg';
-    document.getElementById('confirm-msg').className = 'msg';
-    document.getElementById('summary').innerHTML = '';
-    var btn = document.getElementById('submit');
-    btn.disabled = false;
-    btn.textContent = '日報を作成する';
-    var sendBtn = document.getElementById('send-btn');
-    sendBtn.disabled = false;
-    sendBtn.textContent = 'Discordに送信する';
-    document.getElementById('done-screen').classList.remove('show');
-    document.getElementById('confirm-screen').classList.remove('show');
-    document.getElementById('form-card').style.display = 'block';
+    $('notice').hidden = true;
+    renderAll();
+    $('done-screen').hidden = true;
+    $('form-screen').hidden = false;
+    $('bar').hidden = false;
     window.scrollTo(0, 0);
+  });
+
+  // ─── 目標達成の紙吹雪 ───
+  function confetti() {
+    if (reduced()) return;
+    var c = $('confetti'), ctx = c.getContext('2d');
+    var dpr = window.devicePixelRatio || 1;
+    c.hidden = false;
+    c.width = innerWidth * dpr; c.height = innerHeight * dpr;
+    ctx.scale(dpr, dpr);
+    var colors = ['#E8A33D', '#F4C56B', '#4CD97B', '#8AB4FF', '#EDEFF3'];
+    var ps = [];
+    for (var i = 0; i < 110; i++) {
+      ps.push({ x: innerWidth / 2, y: innerHeight * 0.32, vx: (Math.random() - 0.5) * 9, vy: -Math.random() * 9 - 3,
+        r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.3, w: 6 + Math.random() * 5, h: 3 + Math.random() * 4,
+        c: colors[i % colors.length] });
+    }
+    var t0 = performance.now();
+    (function frame(t) {
+      var el = t - t0;
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      ps.forEach(function(q) {
+        q.vy += 0.22; q.vx *= 0.99; q.x += q.vx; q.y += q.vy; q.r += q.vr;
+        ctx.save(); ctx.translate(q.x, q.y); ctx.rotate(q.r);
+        ctx.globalAlpha = Math.max(0, 1 - el / 1800);
+        ctx.fillStyle = q.c; ctx.fillRect(-q.w / 2, -q.h / 2, q.w, q.h); ctx.restore();
+      });
+      if (el < 1800) requestAnimationFrame(frame);
+      else { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, c.width, c.height); c.hidden = true; }
+    })(t0);
   }
 </script>
 </body>
