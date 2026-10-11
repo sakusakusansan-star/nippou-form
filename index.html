@@ -573,6 +573,7 @@
 
 <canvas id="confetti" hidden></canvas>
 
+<script src="gas-client.js"></script>
 <script>
   // ═══════════════════════════════════════
   //  設定（ここを編集すれば項目を変えられます）
@@ -596,6 +597,10 @@
   var PREFS_KEY = 'nippou.prefs.v1';
   var EVENT_KEY = 'nippou.event.v1';
   var DRAFT_KEY = 'nippou.draft.v2';
+  //   SEND_ID : 送信ID（同じ日報を送り直すときは同じIDを使い、GAS側で二重登録を防ぐ）
+  //   DEDUPE  : GASが送信IDに対応しているか（対応していれば通信の失敗を自動でやり直す）
+  var SEND_ID_KEY = 'nippou.sendid.v1';
+  var DEDUPE_KEY = 'nippou.serverDedupe.v1';
 
   function load(key) {
     try { var s = localStorage.getItem(key); return s ? JSON.parse(s) : null; } catch (e) { return null; }
@@ -1069,10 +1074,23 @@
       prev: state.target > 0 ? state.prev : 0,
       note: state.note.trim()
     };
+    pendingPayload.requestId = sendIdFor(pendingPayload);
     renderPreview(pendingPayload);
     $('confirm-msg').hidden = true;
     openSheet('sheet-confirm');
   });
+
+  // 同じ内容なら前回と同じ送信IDを使う。
+  // 「通信エラー → もう一度送信」で、シートやDiscordに2件入るのを防ぐため。
+  // 送信に成功したら消すので、次の日報には新しいIDが付く。
+  function sendIdFor(p) {
+    var key = JSON.stringify(p);
+    var saved = load(SEND_ID_KEY);
+    if (saved && saved.key === key && saved.id) return saved.id;
+    var id = GasClient.newId();
+    store(SEND_ID_KEY, { key: key, id: id });
+    return id;
+  }
 
   // ─── 送信 ───
   var sending = false;
@@ -1085,14 +1103,13 @@
     var restore = function() { sending = false; btn.disabled = false; btn.textContent = 'Discordに送信する'; };
     var fail = function(text) { $('confirm-msg').textContent = text; $('confirm-msg').hidden = false; restore(); };
 
-    fetch(NIPPOU_API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(payload)
-    })
-    .then(function(res) { return res.json(); })
+    // GASが送信IDに対応していると分かっていれば、Google側の一時的な失敗は自動でやり直す
+    // （同じIDなので二重にはならない）。分からないうちは二重登録を避けてやり直さない。
+    var serverDedupe = !!load(DEDUPE_KEY);
+    GasClient.post(NIPPOU_API, payload, { retry: serverDedupe })
     .then(function(data) {
       if (data && data.ok) {
+        if (data.dedupe) store(DEDUPE_KEY, true); else drop(DEDUPE_KEY);
         rememberSent(payload);
         restore();
         closeSheet();
@@ -1101,8 +1118,14 @@
         fail('エラー：' + (data && data.error ? data.error : '不明なエラー'));
       }
     })
-    .catch(function() {
-      fail('通信エラーが発生しました。入力内容は保存されているので、電波の良い場所でもう一度お試しください');
+    .catch(function(err) {
+      if (err.maybeDone && serverDedupe) {
+        fail('通信が途中で切れました。もう一度「送信する」を押してください（記録済みでも二重にはなりません）');
+      } else if (err.maybeDone) {
+        fail('通信が途中で切れました。記録済みの場合があります。Discordの日報チャンネルに出ていなければ、もう一度送信してください');
+      } else {
+        fail('送信できませんでした：' + err.message + '（入力内容は保存されています）');
+      }
     });
   });
 
@@ -1115,6 +1138,7 @@
       drop(EVENT_KEY);
     }
     drop(DRAFT_KEY);
+    drop(SEND_ID_KEY);
   }
 
   function showDone(data, p) {
