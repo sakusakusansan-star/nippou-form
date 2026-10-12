@@ -11,6 +11,8 @@
 // ═══════════════════════════════════════════
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
+// コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
+var CODE_VERSION = '2026-10-11';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -19,10 +21,10 @@ function setup() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
-  sheet.getRange(1, 1, 1, 13).setValues([[
+  sheet.getRange(1, 1, 1, 14).setValues([[
     '送信日時', '入店日', '名前', 'キャリア', '稼働場所',
     'アプローチ合計', 'アプローチ内訳', '獲得合計', '獲得内訳',
-    'MNP目標', 'MNP通算進捗', '進捗率', '所感'
+    'MNP目標', 'MNP通算進捗', '進捗率', '所感', '送信ID'
   ]]);
   sheet.setFrozenRows(1);
 }
@@ -245,150 +247,193 @@ function checkDiscord() {
   }
 }
 
+// ═══ 二重登録の防止 ═══
+// 通信が途中で切れると、記録は済んでいるのにフォームには失敗と出る。
+// そこで送り直すと、シートに2行・Discordに2件入り、今月の合計も水増しされていた。
+// フォームは同じ日報には同じ「送信ID」を付けて送るので、6時間以内に同じIDが
+// 来たら、記録もDiscord投稿もせず、前回の結果をそのまま返す。
+var DEDUPE_SEC = 21600;
+function dedupeKey_(id) { return 'nippou:' + id; }
+
+// ═══ デプロイ確認 ═══
+// /exec をブラウザで直接開くと返る。日報は記録しない。
+function doGet() {
+  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true });
+}
+
 function doPost(e) {
+  var lock = LockService.getScriptLock();
   try {
-    var p = JSON.parse(e.postData.contents);
-    if (!p.name) return json_({ ok: false, error: '名前がありません' });
-
-    var approachTotal = sumBreakdown_(p.approaches);
-    var gainTotal = sumBreakdown_(p.gains);
-    var mnpCount = pickCount_(p.gains, 'MNP');
-    var target = Number(p.target) || 0;
-    var prev = Number(p.prev) || 0;
-    var cumulative = prev + mnpCount;
-    var pct = target > 0 ? Math.round(cumulative / target * 100) : '';
-
-    getSheet_().appendRow([
-      new Date(),
-      p.date ? String(p.date) : '',
-      String(p.name),
-      String(p.carrier || ''),
-      String(p.place || ''),
-      approachTotal,
-      fmtBreakdown_(p.approaches),
-      gainTotal,
-      fmtBreakdown_(p.gains),
-      target || '',
-      cumulative,
-      pct !== '' ? pct + '%' : '',
-      String(p.note || '').trim()
-    ]);
-
-    var stats = monthlyStats_(String(p.name), ymd_(p.date, 'Asia/Tokyo'));
-    var monthly = stats.gain;
-
-    // ─── 日付表記 ───
-    var dateStr = '';
-    if (p.date) {
-      var d = new Date(p.date);
-      if (!isNaN(d.getTime())) {
-        var youbi = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
-        dateStr = (d.getMonth() + 1) + '/' + d.getDate() + '（' + youbi + '）';
-      }
-    }
-
-    // ─── コピー用テキスト（Teamsにそのまま貼れる形）───
-    var lines = [];
-    lines.push('日報');
-    lines.push('入店日：' + (dateStr || '-'));
-    lines.push('キャリア：' + (p.carrier || '-'));
-    lines.push('稼働場所：' + (p.place || '-'));
-    lines.push('');
-    lines.push('【アプローチ】' + approachTotal + '件');
-    if (fmtBreakdown_(p.approaches)) lines.push(fmtBreakdown_(p.approaches));
-    lines.push('');
-    lines.push('【獲得】' + gainTotal + '件');
-    if (fmtBreakdown_(p.gains)) lines.push(fmtBreakdown_(p.gains));
-    if (target > 0) {
-      lines.push('');
-      lines.push('🎯 MNP目標 ' + target + '件中 通算 ' + cumulative + '件（' + pct + '%）');
-      lines.push(bar_(pct));
-      if (prev > 0) lines.push('（本日MNP ' + mnpCount + '件 ＋ 前日まで ' + prev + '件）');
-    }
-    lines.push('');
-    lines.push('📈 今月通算：' + monthly + '件');
-    lines.push('📱 今月MNP：' + stats.mnp + '件（稼働' + stats.days + '日・平均' + stats.mnpAvg + '件/日）');
-    if (p.note && String(p.note).trim()) {
-      lines.push('');
-      lines.push('【所感】');
-      lines.push(String(p.note).trim());
-    }
-    var copyText = lines.join('\n');
-
-    // ─── Teams自動投稿（URLが設定されている場合のみ試行）───
-    var teamsOk = null;
-    if (TEAMS_WEBHOOK_URL) {
-      var facts = [
-        { title: '入店日', value: dateStr || '-' },
-        { title: 'キャリア', value: String(p.carrier || '-') },
-        { title: '稼働場所', value: String(p.place || '-') },
-        { title: 'アプローチ', value: approachTotal + '件' + (fmtBreakdown_(p.approaches) ? '（' + fmtBreakdown_(p.approaches) + '）' : '') },
-        { title: '獲得', value: gainTotal + '件' + (fmtBreakdown_(p.gains) ? '（' + fmtBreakdown_(p.gains) + '）' : '') }
-      ];
-      var body = [
-        { type: 'TextBlock', text: '📋 日報｜' + p.name, weight: 'Bolder', size: 'Medium', wrap: true },
-        { type: 'FactSet', facts: facts }
-      ];
-      if (target > 0) {
-        body.push({
-          type: 'TextBlock',
-          text: '🎯 MNP目標 ' + target + '件中 通算 ' + cumulative + '件（' + pct + '%）\n' + bar_(pct) +
-            (prev > 0 ? '\n（本日MNP ' + mnpCount + '件 ＋ 前日まで ' + prev + '件）' : ''),
-          wrap: true
-        });
-      }
-      body.push({
-        type: 'TextBlock',
-        text: '📈 今月通算：' + monthly + '件\n📱 今月MNP：' + stats.mnp + '件（稼働' + stats.days + '日・平均' + stats.mnpAvg + '件/日）',
-        wrap: true
-      });
-      if (p.note && String(p.note).trim()) {
-        body.push({ type: 'TextBlock', text: '💬 所感\n' + String(p.note).trim(), wrap: true, separator: true });
-      }
-      var card = {
-        type: 'message',
-        attachments: [{
-          contentType: 'application/vnd.microsoft.card.adaptive',
-          content: { '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json', type: 'AdaptiveCard', version: '1.4', body: body }
-        }]
-      };
-      try {
-        var res = UrlFetchApp.fetch(TEAMS_WEBHOOK_URL, {
-          method: 'post', contentType: 'application/json', payload: JSON.stringify(card), muteHttpExceptions: true
-        });
-        teamsOk = res.getResponseCode() < 300;
-      } catch (err2) {
-        teamsOk = false;
-      }
-    }
-
-    // ─── Discord自動投稿（スクリプトプロパティにURLが設定されている場合のみ試行）───
-    var discordOk = sendToDiscord_(copyText, p, {
-      dateStr: dateStr,
-      pct: pct,
-      cumulative: cumulative,
-      prev: prev,
-      mnpCount: mnpCount,
-      target: target,
-      monthly: monthly,
-      monthlyMnp: stats.mnp,
-      workDays: stats.days,
-      mnpAvg: stats.mnpAvg,
-      approachTotal: approachTotal,
-      gainTotal: gainTotal
-    });
-
-    return json_({
-      ok: true,
-      teams: teamsOk,
-      discord: discordOk,
-      monthly: monthly,
-      monthlyMnp: stats.mnp,
-      workDays: stats.days,
-      mnpAvg: stats.mnpAvg,
-      text: copyText
-    });
+    lock.waitLock(25000);
+    var res = handlePost_(e);
+    return json_(res);
   } catch (err) {
     return json_({ ok: false, error: String(err) });
+  } finally {
+    try { lock.releaseLock(); } catch (ignore) {}
   }
+}
+
+function handlePost_(e) {
+  var p = JSON.parse(e.postData.contents);
+  var requestId = String(p.requestId || '').slice(0, 100);
+  var cache = CacheService.getScriptCache();
+  if (requestId) {
+    var done = cache.get(dedupeKey_(requestId));
+    if (done) {
+      var prevRes = JSON.parse(done);
+      prevRes.duplicate = true;   // 2回目以降。記録・投稿はしていない
+      return prevRes;
+    }
+  }
+  var out = buildReport_(p, requestId);
+  if (out.ok && requestId) {
+    try { cache.put(dedupeKey_(requestId), JSON.stringify(out), DEDUPE_SEC); } catch (ignore) {}
+  }
+  return out;
+}
+
+function buildReport_(p, requestId) {
+  if (!p.name) return { ok: false, error: '名前がありません' };
+
+  var approachTotal = sumBreakdown_(p.approaches);
+  var gainTotal = sumBreakdown_(p.gains);
+  var mnpCount = pickCount_(p.gains, 'MNP');
+  var target = Number(p.target) || 0;
+  var prev = Number(p.prev) || 0;
+  var cumulative = prev + mnpCount;
+  var pct = target > 0 ? Math.round(cumulative / target * 100) : '';
+
+  getSheet_().appendRow([
+    new Date(),
+    p.date ? String(p.date) : '',
+    String(p.name),
+    String(p.carrier || ''),
+    String(p.place || ''),
+    approachTotal,
+    fmtBreakdown_(p.approaches),
+    gainTotal,
+    fmtBreakdown_(p.gains),
+    target || '',
+    cumulative,
+    pct !== '' ? pct + '%' : '',
+    String(p.note || '').trim(),
+    requestId || ''
+  ]);
+
+  var stats = monthlyStats_(String(p.name), ymd_(p.date, 'Asia/Tokyo'));
+  var monthly = stats.gain;
+
+  // ─── 日付表記 ───
+  var dateStr = '';
+  if (p.date) {
+    var d = new Date(p.date);
+    if (!isNaN(d.getTime())) {
+      var youbi = ['日', '月', '火', '水', '木', '金', '土'][d.getDay()];
+      dateStr = (d.getMonth() + 1) + '/' + d.getDate() + '（' + youbi + '）';
+    }
+  }
+
+  // ─── コピー用テキスト（Teamsにそのまま貼れる形）───
+  var lines = [];
+  lines.push('日報');
+  lines.push('入店日：' + (dateStr || '-'));
+  lines.push('キャリア：' + (p.carrier || '-'));
+  lines.push('稼働場所：' + (p.place || '-'));
+  lines.push('');
+  lines.push('【アプローチ】' + approachTotal + '件');
+  if (fmtBreakdown_(p.approaches)) lines.push(fmtBreakdown_(p.approaches));
+  lines.push('');
+  lines.push('【獲得】' + gainTotal + '件');
+  if (fmtBreakdown_(p.gains)) lines.push(fmtBreakdown_(p.gains));
+  if (target > 0) {
+    lines.push('');
+    lines.push('🎯 MNP目標 ' + target + '件中 通算 ' + cumulative + '件（' + pct + '%）');
+    lines.push(bar_(pct));
+    if (prev > 0) lines.push('（本日MNP ' + mnpCount + '件 ＋ 前日まで ' + prev + '件）');
+  }
+  lines.push('');
+  lines.push('📈 今月通算：' + monthly + '件');
+  lines.push('📱 今月MNP：' + stats.mnp + '件（稼働' + stats.days + '日・平均' + stats.mnpAvg + '件/日）');
+  if (p.note && String(p.note).trim()) {
+    lines.push('');
+    lines.push('【所感】');
+    lines.push(String(p.note).trim());
+  }
+  var copyText = lines.join('\n');
+
+  // ─── Teams自動投稿（URLが設定されている場合のみ試行）───
+  var teamsOk = null;
+  if (TEAMS_WEBHOOK_URL) {
+    var facts = [
+      { title: '入店日', value: dateStr || '-' },
+      { title: 'キャリア', value: String(p.carrier || '-') },
+      { title: '稼働場所', value: String(p.place || '-') },
+      { title: 'アプローチ', value: approachTotal + '件' + (fmtBreakdown_(p.approaches) ? '（' + fmtBreakdown_(p.approaches) + '）' : '') },
+      { title: '獲得', value: gainTotal + '件' + (fmtBreakdown_(p.gains) ? '（' + fmtBreakdown_(p.gains) + '）' : '') }
+    ];
+    var body = [
+      { type: 'TextBlock', text: '📋 日報｜' + p.name, weight: 'Bolder', size: 'Medium', wrap: true },
+      { type: 'FactSet', facts: facts }
+    ];
+    if (target > 0) {
+      body.push({
+        type: 'TextBlock',
+        text: '🎯 MNP目標 ' + target + '件中 通算 ' + cumulative + '件（' + pct + '%）\n' + bar_(pct) +
+          (prev > 0 ? '\n（本日MNP ' + mnpCount + '件 ＋ 前日まで ' + prev + '件）' : ''),
+        wrap: true
+      });
+    }
+    body.push({
+      type: 'TextBlock',
+      text: '📈 今月通算：' + monthly + '件\n📱 今月MNP：' + stats.mnp + '件（稼働' + stats.days + '日・平均' + stats.mnpAvg + '件/日）',
+      wrap: true
+    });
+    if (p.note && String(p.note).trim()) {
+      body.push({ type: 'TextBlock', text: '💬 所感\n' + String(p.note).trim(), wrap: true, separator: true });
+    }
+    var card = {
+      type: 'message',
+      attachments: [{
+        contentType: 'application/vnd.microsoft.card.adaptive',
+        content: { '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json', type: 'AdaptiveCard', version: '1.4', body: body }
+      }]
+    };
+    try {
+      var res = UrlFetchApp.fetch(TEAMS_WEBHOOK_URL, {
+        method: 'post', contentType: 'application/json', payload: JSON.stringify(card), muteHttpExceptions: true
+      });
+      teamsOk = res.getResponseCode() < 300;
+    } catch (err2) {
+      teamsOk = false;
+    }
+  }
+
+  // ─── Discord自動投稿（スクリプトプロパティにURLが設定されている場合のみ試行）───
+  var discordOk = sendToDiscord_(copyText, p, {
+    dateStr: dateStr,
+    pct: pct,
+    cumulative: cumulative,
+    prev: prev,
+    mnpCount: mnpCount,
+    target: target,
+    monthly: monthly,
+    monthlyMnp: stats.mnp,
+    workDays: stats.days,
+    mnpAvg: stats.mnpAvg,
+    approachTotal: approachTotal,
+    gainTotal: gainTotal
+  });
+
+  return {
+    ok: true,
+    dedupe: true,   // このデプロイは送信IDでの二重登録防止に対応している（フォームが自動再試行の判断に使う）
+    teams: teamsOk,
+    discord: discordOk,
+    monthly: monthly,
+    monthlyMnp: stats.mnp,
+    workDays: stats.days,
+    mnpAvg: stats.mnpAvg,
+    text: copyText
+  };
 }
