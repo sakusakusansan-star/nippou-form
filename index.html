@@ -424,7 +424,7 @@
 
     <header class="head">
       <div>
-        <div class="eyebrow">SIEG OPS BOARD</div>
+        <div class="eyebrow">Sieg 業務ポータル</div>
         <h1>日報</h1>
       </div>
       <label class="date-pill" for="date">
@@ -485,7 +485,7 @@
       <textarea id="note" placeholder="今日良かったこと・課題・明日やることなど"></textarea>
     </section>
 
-    <div class="foot">SIEG OPERATIONS PORTAL ★ KUMAMOTO</div>
+    <div class="foot">Sieg 業務ポータル ・ 熊本</div>
   </div>
 
   <!-- ═══ 完了画面 ═══ -->
@@ -574,6 +574,7 @@
 <canvas id="confetti" hidden></canvas>
 
 <script src="gas-client.js"></script>
+<script src="sieg-nav.js"></script>
 <script>
   // ═══════════════════════════════════════
   //  設定（ここを編集すれば項目を変えられます）
@@ -660,6 +661,8 @@
       if (CARRIERS.indexOf(prefs.carrier) >= 0) s.carrier = prefs.carrier;
       s.place = String(prefs.place || '');
     }
+    // 日報を送ったことがない端末では、ポータルで選んだ名前を初期値にする
+    if (!s.name) s.name = SiegNav.staff(NAMES);
 
     var ev = load(EVENT_KEY);
     if (ev && toInt(ev.target) > 0 && ev.place === s.place) {
