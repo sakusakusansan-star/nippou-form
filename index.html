@@ -4,71 +4,52 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>日報 | Sieg 業務ポータル</title>
+<meta name="theme-color" content="#EFF1F4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0C1015" media="(prefers-color-scheme: dark)">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="sieg-theme.css">
 <style>
   /* 1カラムの業務ボード：上に今日のスコア、タップで数えるタイル、画面下に送信バー
      色はスマホの設定（ライト／ダーク）に合わせて自動で切り替わる */
+  /* 色は sieg-theme.css の --sg-* につなぐ（スマホのライト／ダーク設定に自動で合わせる）。
+     MNPのタイルなど「目立たせたいところ」は琥珀色（--sg-amber）、主ボタンは紺（--sg-primary）。 */
   :root {
-    --bg: #0B1220;
-    --glow: rgba(232,163,61,0.10);
-    --surface: #121C2E;
-    --surface-2: #182439;
-    --line: #233049;
-    --line-strong: #34445F;
-    --text: #EDEFF3;
-    --muted: #8A93A6;
-    --faint: #56607A;
-    --accent: #E8A33D;
-    --accent-ink: #0B1220;
-    --accent-text: #F4C56B;
-    --accent-soft: rgba(232,163,61,0.13);
-    --accent-line: rgba(232,163,61,0.45);
-    --good: #4CD97B;
-    --good-soft: rgba(76,217,123,0.12);
-    --bad: #E86A5A;
-    --bad-soft: rgba(232,106,90,0.12);
-    --scrim: rgba(3,7,15,0.62);
-    --bar-bg: rgba(11,18,32,0.86);
-    --dc-bg: #2B2D31;
-    --dc-embed: #232428;
-    --dc-head: #F2F3F5;
-    --dc-text: #DBDEE1;
-    --dc-muted: #949BA4;
-    --font-body: 'Zen Kaku Gothic New', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
-    --font-num: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-    color-scheme: dark;
+    --bg: var(--sg-bg);
+    --glow: transparent;
+    --surface: var(--sg-surface);
+    --surface-2: var(--sg-sunk);
+    --line: var(--sg-hair);
+    --line-strong: color-mix(in srgb, var(--sg-ink) 18%, transparent);
+    --text: var(--sg-ink);
+    --muted: var(--sg-mute);
+    --faint: var(--sg-faint);
+    --accent: var(--sg-amber);
+    --accent-ink: var(--sg-surface);
+    --accent-text: var(--sg-amber);
+    --accent-soft: var(--sg-amber-tint);
+    --accent-line: color-mix(in srgb, var(--sg-amber) 45%, transparent);
+    --good: var(--sg-green);
+    --good-soft: var(--sg-green-tint);
+    --bad: var(--sg-red);
+    --bad-soft: var(--sg-red-tint);
+    --scrim: var(--sg-scrim);
+    --bar-bg: color-mix(in srgb, var(--sg-bg) 88%, transparent);
+    /* Discordの見本（実際のDiscordの色に合わせる） */
+    --dc-bg: #FFFFFF;
+    --dc-embed: #F2F3F5;
+    --dc-head: #060607;
+    --dc-text: #313338;
+    --dc-muted: #5C5E66;
+    --font-body: var(--sg-font);
+    --font-num: var(--sg-font);
   }
-  @media (prefers-color-scheme: light) {
+  @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #EEF1F6;
-      --glow: rgba(232,163,61,0.14);
-      --surface: #FFFFFF;
-      --surface-2: #F5F7FA;
-      --line: #DCE1EA;
-      --line-strong: #C3CBD8;
-      --text: #0F1A2E;
-      --muted: #5B6476;
-      --faint: #9AA2B1;
-      --accent: #E8A33D;
-      --accent-ink: #1A1204;
-      --accent-text: #98600A;
-      --accent-soft: rgba(232,163,61,0.15);
-      --accent-line: rgba(196,128,26,0.55);
-      --good: #1E9450;
-      --good-soft: rgba(30,148,80,0.10);
-      --bad: #C8442F;
-      --bad-soft: rgba(200,68,47,0.10);
-      --scrim: rgba(15,26,46,0.38);
-      --bar-bg: rgba(238,241,246,0.88);
-      --dc-bg: #FFFFFF;
-      --dc-embed: #F2F3F5;
-      --dc-head: #060607;
-      --dc-text: #313338;
-      --dc-muted: #5C5E66;
-      color-scheme: light;
+      --dc-bg: #2B2D31;
+      --dc-embed: #232428;
+      --dc-head: #F2F3F5;
+      --dc-text: #DBDEE1;
+      --dc-muted: #949BA4;
     }
   }
 
@@ -414,6 +395,10 @@
     *, *::before, *::after { animation: none !important; transition: none !important; }
     .check path { stroke-dashoffset: 0; }
   }
+
+  /* ═══ 共通の見た目（sieg-theme.css）に合わせる ═══ */
+  .primary { background: var(--sg-primary); color: var(--sg-on-primary); border-radius: var(--sg-r-sm); }
+  .eyebrow { font-size: 11px; letter-spacing: .14em; }
 </style>
 </head>
 <body>
