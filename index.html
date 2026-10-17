@@ -566,7 +566,7 @@
   // ═══════════════════════════════════════
   var NIPPOU_API = 'https://script.google.com/macros/s/AKfycbwEclDIdJiNgdXOmveRvT-BJOVWc6FwyrpxWNrqHs1DB9xgx9Ijuix0qqQ5KyG-XlkF7w/exec';
 
-  var NAMES = ['鈴木', '毛利', '山口', '山内', '福山', '古川'];
+  var NAMES = ['鈴木', '毛利', '山口', '山内', '福山', '古川'];   // ポータルの NIPPOU_NAMES も同じ並びに
   var CARRIERS = ['Softbank', 'docomo', 'au'];
   var APPROACH_ITEMS = ['キャッチ', '着座'];                    // アプローチの内訳
   var GAIN_ITEMS = ['MNP', '新規', '固定', '電気', 'カード'];   // 獲得の内訳（先頭のMNPは大きいタイルで表示）
@@ -627,6 +627,18 @@
   function zeroCounts(items) { var o = {}; items.forEach(function(k) { o[k] = 0; }); return o; }
   function sum(o) { var t = 0; for (var k in o) t += o[k]; return t; }
 
+  // ポータルで名前を選んで開いたとき（?staff=名前）。一覧にある名前だけ使う
+  var URL_STAFF = (function() {
+    var n = new URLSearchParams(location.search).get('staff') || '';
+    return NAMES.indexOf(n) >= 0 ? n : '';
+  })();
+  // ポータルが日報を開くときに使う名前（同じアドレスなので共有できる）。
+  // ここで名前を変えたら書き換えて、次にポータルから開いたときもその人で開くようにする
+  var PORTAL_CHOICE_KEY = 'siegChoice_nippou';
+  function rememberForPortal(name) {
+    try { localStorage.setItem(PORTAL_CHOICE_KEY, name); } catch (e) {}
+  }
+
   // ─── 入力内容 ───
   var state;
   var editingProfile = false;
@@ -641,11 +653,14 @@
     };
 
     var prefs = load(PREFS_KEY);
+    // ポータルで別の人を選んで開いたときは、前回の人のキャリア・稼働場所は使わない
+    if (prefs && URL_STAFF && prefs.name !== URL_STAFF) prefs = null;
     if (prefs) {
       if (NAMES.indexOf(prefs.name) >= 0) s.name = prefs.name;
       if (CARRIERS.indexOf(prefs.carrier) >= 0) s.carrier = prefs.carrier;
       s.place = String(prefs.place || '');
     }
+    if (URL_STAFF) s.name = URL_STAFF;
     // 日報を送ったことがない端末では、ポータルで選んだ名前を初期値にする
     if (!s.name) s.name = SiegNav.staff(NAMES);
 
@@ -709,6 +724,7 @@
       b.type = 'button'; b.className = 'chip'; b.textContent = v; b.dataset.value = v;
       b.addEventListener('click', function() {
         state[key] = v;
+        if (key === 'name') rememberForPortal(v);
         $(groupId).classList.remove('invalid');
         renderProfile(); saveDraft();
       });
