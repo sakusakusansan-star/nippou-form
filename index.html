@@ -1147,9 +1147,22 @@
     });
   });
 
+  // ポータルのホームで「日報 提出済み／未提出」を出すための記録。
+  // { 名前: [送った日報の日付（yyyy-mm-dd）…] } を新しい順に14件まで（同じアドレスなのでポータルから読める）
+  var SUBMITTED_KEY = 'siegNippouSubmitted';
+  function markSubmitted(name, date) {
+    if (!name || !date) return;
+    var all = load(SUBMITTED_KEY) || {};
+    var list = (all[name] || []).filter(function(d) { return d !== date; });
+    list.unshift(date);
+    all[name] = list.slice(0, 14);
+    store(SUBMITTED_KEY, all);
+  }
+
   // 送信できたら、次回の初期値を覚えて下書きを消す
   function rememberSent(p) {
     store(PREFS_KEY, { name: p.name, carrier: p.carrier, place: p.place });
+    markSubmitted(p.name, p.date);
     if (p.target > 0) {
       store(EVENT_KEY, { place: p.place, date: p.date, target: p.target, prev: p.prev, cumulative: p.prev + countOf(p.gains, 'MNP') });
     } else {
