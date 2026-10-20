@@ -566,7 +566,7 @@
   // ═══════════════════════════════════════
   var NIPPOU_API = 'https://script.google.com/macros/s/AKfycbwEclDIdJiNgdXOmveRvT-BJOVWc6FwyrpxWNrqHs1DB9xgx9Ijuix0qqQ5KyG-XlkF7w/exec';
 
-  var NAMES = ['鈴木', '毛利', '山口', '山内', '福山', '古川'];   // ポータルの NIPPOU_NAMES も同じ並びに
+  var NAMES = ['鈴木', '毛利', '山口', '山内'];   // 日報はパートナー様だけ（ポータルの TOOLS の日報の for と同じ人）
   var CARRIERS = ['Softbank', 'docomo', 'au'];
   var APPROACH_ITEMS = ['キャッチ', '着座'];                    // アプローチの内訳
   var GAIN_ITEMS = ['MNP', '新規', '固定', '電気', 'カード'];   // 獲得の内訳（先頭のMNPは大きいタイルで表示）
@@ -632,11 +632,13 @@
     var n = new URLSearchParams(location.search).get('staff') || '';
     return NAMES.indexOf(n) >= 0 ? n : '';
   })();
-  // ポータルが日報を開くときに使う名前（同じアドレスなので共有できる）。
-  // ここで名前を変えたら書き換えて、次にポータルから開いたときもその人で開くようにする
-  var PORTAL_CHOICE_KEY = 'siegChoice_nippou';
+  // ポータルで選んだ名前（同じアドレスなので共有できる）。
+  // ここで名前を変えたらポータルの名前も変えて、次にポータルから開いたときもその人で開くようにする
   function rememberForPortal(name) {
-    try { localStorage.setItem(PORTAL_CHOICE_KEY, name); } catch (e) {}
+    try {
+      localStorage.setItem('siegStaff', name);
+      localStorage.setItem('siegPartnerName', name);   // パートナー様用シフト入力と共通
+    } catch (e) {}
   }
 
   // ─── 入力内容 ───
