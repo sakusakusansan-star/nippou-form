@@ -560,13 +560,25 @@
 
 <script src="gas-client.js"></script>
 <script src="sieg-nav.js"></script>
+<script src="/sieg-portal/sieg-roster.js"></script>
 <script>
   // ═══════════════════════════════════════
   //  設定（ここを編集すれば項目を変えられます）
   // ═══════════════════════════════════════
   var NIPPOU_API = 'https://script.google.com/macros/s/AKfycbwEclDIdJiNgdXOmveRvT-BJOVWc6FwyrpxWNrqHs1DB9xgx9Ijuix0qqQ5KyG-XlkF7w/exec';
 
-  var NAMES = ['鈴木', '毛利', '山口', '山内'];   // 日報はパートナー様だけ（ポータルの TOOLS の日報の for と同じ人）
+  // 名前の一覧はポータルの名簿（sieg-roster.js）の「日報を使う人」
+  var NAMES = window.SiegRoster ? SiegRoster.forTool('nippou') : [];
+  // 名簿（/sieg-portal/sieg-roster.js）が読めなかったときは、再読み込みをお願いする
+  if (!window.SiegRoster) {
+    document.addEventListener('DOMContentLoaded', function() {
+      var d = document.createElement('div');
+      d.style.cssText = 'margin:10px 16px;padding:10px 14px;border-radius:12px;background:var(--sg-red-tint,#F9EAE8);color:var(--sg-red,#AE2B24);font-weight:700;font-size:14px';
+      d.textContent = '名前の一覧を読み込めませんでした。電波のよいところで再読み込みしてください。';
+      document.body.insertBefore(d, document.body.firstChild);
+    });
+  }
+
   var CARRIERS = ['Softbank', 'docomo', 'au'];
   var APPROACH_ITEMS = ['キャッチ', '着座'];                    // アプローチの内訳
   var GAIN_ITEMS = ['MNP', '新規', '固定', '電気', 'カード'];   // 獲得の内訳（先頭のMNPは大きいタイルで表示）
