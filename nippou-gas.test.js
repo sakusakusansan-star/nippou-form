@@ -89,7 +89,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-10-30');
+assert.strictEqual(r.version, '2026-10-31');
 assert.strictEqual(r.gain, true);
 
 // ─── Discord 未設定でも記録できる ───
@@ -175,6 +175,7 @@ assert.strictEqual(r.ok, true);
 assert.strictEqual(r.monthlyMnp, 3);
 assert.ok(r.text.indexOf('通算 7件') >= 0, r.text);
 const embed = posts[posts.length - 1].body.embeds[0];
+assert.strictEqual(posts[posts.length - 1].body.username, '鈴木', '日報も送った人の名前で投稿');
 assert.ok(embed.fields.some(f => /本日MNP 3件/.test(f.value)));
 
 console.log('nippou-gas: all tests passed');

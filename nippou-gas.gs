@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-10-30';
+var CODE_VERSION = '2026-10-31';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -195,6 +195,9 @@ function sendToDiscord_(copyText, p, meta) {
       contentType: 'application/json',
       muteHttpExceptions: true,
       payload: JSON.stringify({
+        // 投稿者の名前を、Webhook の名前（Bot）ではなく日報を送った人の名前にする
+        username: String(p.name || '日報').slice(0, 80),
+        allowed_mentions: { parse: [] },
         embeds: [{
           title: '📋 日報｜' + String(p.name || '') + '　' + (m.dateStr || '') + (achieved ? ' 🎉' : ''),
           color: color,

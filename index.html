@@ -1177,10 +1177,13 @@
     var hm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
 
     var root = $('dc-preview');
-    root.innerHTML = '<div class="dc-msg"><div class="dc-avatar">日</div><div class="dc-main">'
-      + '<div class="dc-name">日報 <span class="dc-tag">APP</span><span class="dc-time">今日 ' + hm + '</span></div>'
+    // GAS は送った人の名前で投稿する（名前は名簿の中から選んだもの）
+    root.innerHTML = '<div class="dc-msg"><div class="dc-avatar" id="dc-av"></div><div class="dc-main">'
+      + '<div class="dc-name"><span id="dc-who"></span> <span class="dc-tag">APP</span><span class="dc-time">今日 ' + hm + '</span></div>'
       + '<div class="dc-embed" id="dc-embed"><div class="dc-title" id="dc-title"></div><div class="dc-fields" id="dc-fields"></div><div class="dc-foot" id="dc-foot"></div></div>'
       + '</div></div>';
+    $('dc-av').textContent = p.name.charAt(0);
+    $('dc-who').textContent = p.name;
     $('dc-embed').style.borderLeftColor = color;
     $('dc-title').textContent = '📋 日報｜' + p.name + '　' + fmtDate(p.date) + (p.target > 0 && built.pct >= 100 ? ' 🎉' : '');
     built.fields.forEach(function(f) {
