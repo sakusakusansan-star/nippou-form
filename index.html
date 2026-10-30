@@ -99,6 +99,10 @@
   }
   .notice.warn { color: var(--accent-text); background: var(--accent-soft); border-color: var(--accent-line); }
   .notice span { flex: 1; }
+  .notice.sync { background: var(--sg-teal-tint); color: var(--sg-teal); border-color: transparent; font-weight: 700; }
+  .notice[hidden] { display: none; }
+  .target-row[hidden] { display: none; }
+  .gain-empty { font-size: 14px; color: var(--muted); text-align: center; padding: 18px 0; }
   .notice button {
     flex-shrink: 0; background: none; border: 1px solid currentColor; border-radius: 8px;
     font-size: 12px; font-weight: 700; padding: 6px 10px;
@@ -169,7 +173,7 @@
      タイル全体が「＋1」のボタン。＋は押せる場所の目印（タイルのどこを押しても＋1） */
   .tiles { display: grid; gap: 10px; }
   .tiles.two { grid-template-columns: 1fr 1fr; }
-  .tiles.four { grid-template-columns: repeat(4, 1fr); }
+  .tiles.four { grid-template-columns: repeat(3, 1fr); }
   .tile { position: relative; }
   .tile-hit {
     position: relative;
@@ -210,7 +214,7 @@
   /* 小さいタイル：数字・項目名・＋の帯を縦に */
   .tiles.four .tile-hit { min-height: 0; align-items: stretch; justify-content: flex-start; gap: 4px; padding: 10px 6px 6px; text-align: center; }
   .tiles.four .t-num { font-size: 26px; }
-  .tiles.four .t-label { font-size: 12px; }
+  .tiles.four .t-label { font-size: 12px; line-height: 1.25; min-height: 2.5em; display: flex; align-items: center; justify-content: center; word-break: break-all; }
   .tiles.four .tile-plus {
     position: static; width: 100%; height: 32px; border-radius: 9px; font-size: 20px; margin-top: 4px;
   }
@@ -457,6 +461,8 @@
     </section>
 
     <div class="sec-head"><h2>獲得</h2><span class="total"><b class="num" id="t-gain">0</b> 件</span></div>
+    <div class="notice sync" id="sync" hidden><span id="sync-text"></span><button type="button" id="sync-apply" hidden>合わせる</button></div>
+    <div class="gain-empty" id="gain-empty" hidden>キャリアを選ぶと、商品が出ます</div>
     <div class="tiles" id="mnp-tile"></div>
     <div class="tiles four" id="gain-tiles"></div>
     <button type="button" class="target-row" id="target-row"></button>
@@ -561,6 +567,7 @@
 <script src="gas-client.js"></script>
 <script src="sieg-nav.js"></script>
 <script src="/sieg-portal/sieg-roster.js"></script>
+<script src="/sieg-portal/sieg-products.js"></script>
 <script>
   // ═══════════════════════════════════════
   //  設定（ここを編集すれば項目を変えられます）
@@ -581,7 +588,27 @@
 
   var CARRIERS = ['Softbank', 'docomo', 'au'];
   var APPROACH_ITEMS = ['キャッチ', '着座'];                    // アプローチの内訳
-  var GAIN_ITEMS = ['MNP', '新規', '固定', '電気', 'カード'];   // 獲得の内訳（先頭のMNPは大きいタイルで表示）
+  // 獲得の内訳は、キャリアごとの商品（ポータルの商品表 /sieg-portal/sieg-products.js）。
+  // 区分が MNP の最初の商品を大きいタイルで出す。MNP目標は区分 MNP の合計で進む。
+  // 商品表が読めなかったときだけ、前の5項目で入力できるようにしておく
+  var P = window.SiegProducts || null;
+  var OLD_GAIN_ITEMS = ['MNP', '新規', '固定', '電気', 'カード'];
+  function gainItems(carrier) {
+    if (!P) return OLD_GAIN_ITEMS;
+    var list = P.items(carrier);
+    var mnp = list.filter(function(x) { return x.cat === 'MNP'; });
+    var rest = list.filter(function(x) { return x.cat !== 'MNP'; });
+    return mnp.concat(rest).map(function(x) { return x.label; });
+  }
+  function isMnp(carrier, label) {
+    if (!P) return label === 'MNP';
+    var it = P.find(carrier, label);
+    return !!it && it.cat === 'MNP';
+  }
+  // [{label,count}] のうち MNP の合計（日報の GAS の mnpCount_ と同じ）
+  function mnpOf(arr, carrier) {
+    return arr.reduce(function(n, x) { return n + (isMnp(carrier, x.label) ? (Number(x.count) || 0) : 0); }, 0);
+  }
 
   // MNP目標を翌日以降に引き継ぐ日数（同じ稼働場所で、前回送信からこの日数以内なら引き継ぐ）
   var EVENT_CARRY_DAYS = 3;
@@ -662,7 +689,7 @@
   function freshState() {
     var s = {
       date: todayStr(), name: '', carrier: '', place: '',
-      approach: zeroCounts(APPROACH_ITEMS), gain: zeroCounts(GAIN_ITEMS),
+      approach: zeroCounts(APPROACH_ITEMS), gain: {},
       target: 0, prev: 0, note: ''
     };
 
@@ -675,6 +702,7 @@
       s.place = String(prefs.place || '');
     }
     if (URL_STAFF) s.name = URL_STAFF;
+    s.gain = zeroCounts(gainItems(s.carrier));
     // 日報を送ったことがない端末では、ポータルで選んだ名前を初期値にする
     if (!s.name) s.name = SiegNav.staff(NAMES);
 
@@ -703,7 +731,8 @@
     if (CARRIERS.indexOf(d.carrier) >= 0) s.carrier = d.carrier;
     s.place = String(d.place || '');
     APPROACH_ITEMS.forEach(function(k) { s.approach[k] = toInt(d.approach && d.approach[k]); });
-    GAIN_ITEMS.forEach(function(k) { s.gain[k] = toInt(d.gain && d.gain[k]); });
+    s.gain = {};
+    gainItems(s.carrier).forEach(function(k) { s.gain[k] = toInt(d.gain && d.gain[k]); });
     s.target = toInt(d.target);
     s.prev = s.target ? toInt(d.prev) : 0;
     s.note = String(d.note || '');
@@ -717,7 +746,8 @@
   function profileComplete() { return !!(state.name && state.carrier && state.place.trim()); }
 
   function mnpInfo() {
-    var mnp = state.gain['MNP'] || 0;
+    var mnp = 0;
+    for (var k in state.gain) if (isMnp(state.carrier, k)) mnp += state.gain[k];
     var cum = state.prev + mnp;
     var pct = state.target > 0 ? Math.round(cum / state.target * 100) : 0;
     return { mnp: mnp, cum: cum, pct: pct };
@@ -727,7 +757,7 @@
   function renderDate() { $('date').value = state.date; $('date-text').textContent = fmtDate(state.date) || '日付を選択'; }
   $('date').addEventListener('change', function() {
     if (!this.value) return;
-    state.date = this.value; renderDate(); saveDraft();
+    state.date = this.value; renderDate(); saveDraft(); syncFromReports();
   });
 
   // ─── 基本情報 ───
@@ -737,8 +767,11 @@
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'chip'; b.textContent = v; b.dataset.value = v;
       b.addEventListener('click', function() {
+        var prev = state[key], changed = prev !== v;
         state[key] = v;
         if (key === 'name') rememberForPortal(v);
+        if (key === 'carrier' && changed) setCarrierItems(prev);
+        if (changed && key !== 'place') syncFromReports();
         $(groupId).classList.remove('invalid');
         renderProfile(); saveDraft();
       });
@@ -825,10 +858,35 @@
     tiles[group][label] = { wrap: wrap, num: num };
   }
 
-  GAIN_ITEMS.forEach(function(l, i) {
-    if (i === 0) buildTile($('mnp-tile'), 'gain', l, true);
-    else buildTile($('gain-tiles'), 'gain', l, false);
-  });
+  // 獲得のタイルを、いまのキャリアの商品で作り直す
+  function buildGainTiles() {
+    $('mnp-tile').innerHTML = ''; $('gain-tiles').innerHTML = '';
+    tiles.gain = {};
+    var labels = gainItems(state.carrier);
+    $('gain-empty').hidden = labels.length > 0;
+    $('target-row').hidden = !labels.length;
+    labels.forEach(function(l, i) {
+      if (i === 0 && isMnp(state.carrier, l)) buildTile($('mnp-tile'), 'gain', l, true);
+      else buildTile($('gain-tiles'), 'gain', l, false);
+    });
+    if (!$('mnp-prog')) {
+      // MNP の商品がないとき（ありえないが念のため）も、進捗の表示先は用意しておく
+      var dummy = document.createElement('span'); dummy.id = 'mnp-prog'; dummy.hidden = true;
+      dummy.innerHTML = '<span id="mnp-cum"></span><b id="mnp-pct"></b><span id="mnp-fill"></span>';
+      $('mnp-tile').appendChild(dummy);
+    }
+  }
+  // キャリアを変えたら、同じ名前の商品（光新規など）の件数だけ持っていく。
+  // 前のキャリアの件数は覚えておき、押し間違えて戻したときは元に戻す
+  var carrierStash = {};
+  function setCarrierItems(prevCarrier) {
+    if (prevCarrier) carrierStash[prevCarrier] = state.gain;
+    var back = carrierStash[state.carrier], keep = {};
+    gainItems(state.carrier).forEach(function(k) { keep[k] = back ? (back[k] || 0) : (state.gain[k] || 0); });
+    state.gain = keep;
+    buildGainTiles();
+    renderCounts();
+  }
   APPROACH_ITEMS.forEach(function(l) { buildTile($('approach-tiles'), 'approach', l, false); });
 
   function change(group, label, delta) {
@@ -872,7 +930,7 @@
     else { rate.textContent = '—'; rate.classList.add('dim'); }
 
     var m = mnpInfo();
-    $('mnp-prog').hidden = !(state.target > 0);
+    $('mnp-prog').hidden = !(state.target > 0) || !$('mnp-tile').querySelector('.hero');
     $('mnp-cum').textContent = '通算 ' + m.cum + ' / ' + state.target;
     $('mnp-pct').textContent = m.pct + '%';
     $('mnp-fill').style.width = Math.min(100, m.pct) + '%';
@@ -952,9 +1010,11 @@
     editingProfile = false;
     renderAll();
     $('notice').hidden = true;
+    syncFromReports();
   });
 
   function renderAll() {
+    buildGainTiles();
     renderDate();
     renderProfile();
     renderCounts();
@@ -973,6 +1033,64 @@
     }
   })();
   renderAll();
+
+  // ─── 獲得報告から獲得欄を入れる ───
+  // その日にポータルの「獲得報告」で送った件数を Google から読み、
+  // 獲得欄がまだ空なら入れる。もう入力してあって数が違うときは「合わせる」を出す。
+  var syncSeq = 0, syncCounts = null;
+  function syncFromReports() {
+    var seq = ++syncSeq;
+    syncCounts = null;
+    $('sync').hidden = true;
+    if (!P || !state.name || !state.date) return;
+    GasClient.get(NIPPOU_API, { action: 'gains', name: state.name, date: state.date }).then(function(data) {
+      if (seq !== syncSeq || !data || !data.ok || !data.items) return;   // 古い GAS（獲得報告に未対応）は何もしない
+      if (!data.items.length) return;
+      // キャリアをまだ選んでいなくて、報告が1つのキャリアだけなら、そのキャリアにする
+      var carriers = data.items.map(function(x) { return x.carrier; })
+        .filter(function(c, i, a) { return a.indexOf(c) === i; });
+      if (!state.carrier && carriers.length === 1 && P.items(carriers[0]).length) {
+        state.carrier = carriers[0];
+        setCarrierItems(); renderProfile();
+      }
+      var mine = {}, n = 0, other = 0;
+      data.items.forEach(function(x) {
+        if (x.carrier === state.carrier && state.gain.hasOwnProperty(x.label)) { mine[x.label] = (mine[x.label] || 0) + x.count; n += x.count; }
+        else other += x.count;
+      });
+      var otherNote = other ? '（ほかのキャリアの ' + other + '件 は入れていません）' : '';
+      if (!n) {
+        if (other) { $('sync-text').textContent = '獲得報告はほかのキャリアで ' + other + '件 あります。キャリアを確かめてください'; $('sync-apply').hidden = true; $('sync').hidden = false; }
+        return;
+      }
+      var same = Object.keys(state.gain).every(function(k) { return (state.gain[k] || 0) === (mine[k] || 0); });
+      if (same) {
+        $('sync-text').textContent = '獲得欄は獲得報告の ' + n + '件 と同じです' + otherNote;
+        $('sync-apply').hidden = true;
+      } else if (sum(state.gain) === 0) {
+        applyCounts(mine);
+        $('sync-text').textContent = '獲得報告の ' + n + '件 を入れました' + otherNote;
+        $('sync-apply').hidden = true;
+      } else {
+        syncCounts = mine;
+        $('sync-text').textContent = '獲得報告は ' + n + '件 です。入力と数が違います' + otherNote;
+        $('sync-apply').hidden = false;
+      }
+      $('sync').hidden = false;
+    }).catch(function() {});
+  }
+  function applyCounts(mine) {
+    Object.keys(state.gain).forEach(function(k) { state.gain[k] = toInt(mine[k] || 0); });
+    renderCounts(); saveDraft();
+  }
+  $('sync-apply').addEventListener('click', function() {
+    if (!syncCounts) return;
+    applyCounts(syncCounts);
+    syncCounts = null;
+    $('sync-text').textContent = '獲得報告の数に合わせました';
+    this.hidden = true;
+  });
+  syncFromReports();
 
   // ─── 確認 ───
   // 未入力の項目があれば選択欄を開いて赤くし、最初の1つまでスクロールする
@@ -1022,7 +1140,7 @@
   // GAS の sendToDiscord_ と同じ組み立て。今月通算はシートから集計するので送信時に決まる
   function discordFields(p) {
     var a = sumBreakdown(p.approaches), g = sumBreakdown(p.gains);
-    var mnp = countOf(p.gains, 'MNP'), cum = p.prev + mnp;
+    var mnp = mnpOf(p.gains, p.carrier), cum = p.prev + mnp;
     var pct = p.target > 0 ? Math.round(cum / p.target * 100) : 0;
     var withTotal = function(total, bd) { return '**' + total + '件**' + (bd ? '\n' + bd : ''); };
     var f = [
@@ -1087,7 +1205,7 @@
       carrier: state.carrier,
       place: state.place.trim(),
       approaches: toBreakdown(APPROACH_ITEMS, state.approach),
-      gains: toBreakdown(GAIN_ITEMS, state.gain),
+      gains: toBreakdown(gainItems(state.carrier), state.gain),
       target: state.target,
       prev: state.target > 0 ? state.prev : 0,
       note: state.note.trim()
@@ -1164,7 +1282,7 @@
     store(PREFS_KEY, { name: p.name, carrier: p.carrier, place: p.place });
     markSubmitted(p.name, p.date);
     if (p.target > 0) {
-      store(EVENT_KEY, { place: p.place, date: p.date, target: p.target, prev: p.prev, cumulative: p.prev + countOf(p.gains, 'MNP') });
+      store(EVENT_KEY, { place: p.place, date: p.date, target: p.target, prev: p.prev, cumulative: p.prev + mnpOf(p.gains, p.carrier) });
     } else {
       drop(EVENT_KEY);
     }
@@ -1187,7 +1305,7 @@
     var hasStats = data.monthlyMnp != null && data.workDays != null;
     $('month').hidden = !hasStats;
     if (hasStats) {
-      var todayMnp = countOf(p.gains, 'MNP');
+      var todayMnp = mnpOf(p.gains, p.carrier);
       var avg = Number(data.mnpAvg) || 0;
       $('month-title').textContent = '今月の成績（' + p.name + '）';
       $('m-mnp').textContent = data.monthlyMnp;
@@ -1198,7 +1316,7 @@
         + (diff > 0 ? '<span class="up num">+' + diff + '</span>' : '<span class="flat num">' + (diff === 0 ? '±0' : diff) + '</span>');
     }
 
-    var achieved = p.target > 0 && p.prev + countOf(p.gains, 'MNP') >= p.target;
+    var achieved = p.target > 0 && p.prev + mnpOf(p.gains, p.carrier) >= p.target;
     $('achieved').hidden = !achieved;
 
     $('copy-text').textContent = data.text || '';
@@ -1237,6 +1355,7 @@
     pendingPayload = null;
     $('notice').hidden = true;
     renderAll();
+    syncFromReports();
     $('done-screen').hidden = true;
     $('form-screen').hidden = false;
     $('bar').hidden = false;
