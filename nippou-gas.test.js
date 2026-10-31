@@ -95,7 +95,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-10-31b');
+assert.strictEqual(r.version, '2026-11-01');
 assert.strictEqual(r.gain, true);
 
 // ─── Discord 未設定でも記録できる ───
@@ -219,4 +219,12 @@ const embed = posts[posts.length - 1].body.embeds[0];
 assert.strictEqual(posts[posts.length - 1].body.username, '鈴木', '日報も送った人の名前で投稿');
 assert.ok(embed.fields.some(f => /本日MNP 3件/.test(f.value)));
 
+// ─── 日報の提出状況 ───
+post({ requestId: 'n2', name: '鈴木', date: '2026-10-30', carrier: 'Softbank', place: '下通', approaches: [], gains: [], target: 0, prev: 0, note: '' });
+post({ requestId: 'n3', name: '毛利', date: '2026-10-29', carrier: 'Softbank', place: '下通', approaches: [], gains: [], target: 0, prev: 0, note: '' });
+post({ requestId: 'n4', name: '毛利', date: '2026-09-29', carrier: 'Softbank', place: '下通', approaches: [], gains: [], target: 0, prev: 0, note: '' });
+r = get({ action: 'nippouStatus', month: '2026-10' });
+assert.strictEqual(r.ok, true);
+assert.deepStrictEqual(r.days, { 鈴木: ['2026-10-30'], 毛利: ['2026-10-29'] }, '同じ日に2回送っても1日・別の月は数えない');
+assert.ok(r.last['鈴木']);
 console.log('nippou-gas: all tests passed');
