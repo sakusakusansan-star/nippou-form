@@ -42,6 +42,8 @@ function Sheet(name, grid) {
 
 let ss;
 const posts = [];
+const failQueue = [];
+const sleeps = [];
 let props = {};
 function load() {
   const sheets = [Sheet('日報', [['送信日時']])];
@@ -70,9 +72,13 @@ function load() {
   global.UrlFetchApp = {
     fetch(url, opt) {
       posts.push({ url, method: opt.method, body: opt.payload ? JSON.parse(opt.payload) : null });
+      const f = failQueue.shift();   // テストで失敗させたい応答を順に入れる
+      if (f === 'throw') throw new Error('Address unavailable');
+      if (f) return { getResponseCode: () => f.code, getContentText: () => JSON.stringify(f.body || {}) };
       return { getResponseCode: () => (opt.method === 'delete' ? 204 : 200), getContentText: () => JSON.stringify({ id: String(++msg) }) };
     }
   };
+  global.Utilities.sleep = (ms) => sleeps.push(ms);
   const code = fs.readFileSync(path.join(__dirname, 'nippou-gas.gs'), 'utf8');
   (0, eval)(code);
 }
@@ -89,7 +95,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-10-31');
+assert.strictEqual(r.version, '2026-10-31b');
 assert.strictEqual(r.gain, true);
 
 // ─── Discord 未設定でも記録できる ───
@@ -113,6 +119,41 @@ assert.strictEqual(sent.body.content, '**ドコモ**　10/30（金）\nハイエ
 assert.deepStrictEqual(r.items[0], { carrier: 'docomo', label: 'ハイエンド', count: 3 }, '同じ日の分は合計');
 assert.strictEqual(r.reports.length, 2);
 assert.strictEqual(r.reports[0].id, 'a2', '新しい順');
+
+// ─── Discord が一時的に断ったら送り直す ───
+failQueue.push({ code: 429, body: { retry_after: 0.7 } }, 'throw');
+let n0 = posts.length;
+r = post({ action: 'gain', requestId: 'r429', name: '福山', carrier: 'Softbank', date: '2026-10-30', items: [{ label: 'SMNP', count: 1 }] });
+assert.strictEqual(r.discord, true, '3回目で届く');
+assert.strictEqual(posts.length - n0, 3);
+assert.deepStrictEqual(sleeps.slice(-2), [950, 2000], '429 は Discord の指定どおり待つ');
+assert.strictEqual(get({ action: 'gains', name: '福山', date: '2026-10-30' }).reports[0].posted, true);
+
+// 400 などは送り直さない
+failQueue.push({ code: 400, body: { message: 'bad' } });
+n0 = posts.length;
+r = post({ action: 'gain', requestId: 'r400', name: '福山', carrier: 'Softbank', date: '2026-10-30', items: [{ label: 'YMNP', count: 1 }] });
+assert.strictEqual(r.discord, false);
+assert.strictEqual(r.discordCode, 400);
+assert.strictEqual(posts.length - n0, 1);
+
+// 3回とも失敗 → 記録は残り、あとから「再送」できる
+failQueue.push({ code: 502 }, { code: 502 }, { code: 502 });
+r = post({ action: 'gain', requestId: 'r502', name: '福山', carrier: 'Softbank', date: '2026-10-30', items: [{ label: 'pixel', count: 2 }] });
+assert.strictEqual(r.discord, false);
+let day = get({ action: 'gains', name: '福山', date: '2026-10-30' });
+assert.strictEqual(day.discordOn, true);
+assert.deepStrictEqual(day.reports.map(x => x.id + ':' + x.posted), ['r502:false', 'r400:false', 'r429:true']);
+r = post({ action: 'gainResend', name: '福山', id: 'r502' });
+assert.strictEqual(r.discord, true);
+assert.strictEqual(posts[posts.length - 1].body.content, '**SB**　10/30（金）\npixel2件');
+assert.strictEqual(get({ action: 'gains', name: '福山', date: '2026-10-30' }).reports[0].posted, true);
+n0 = posts.length;
+assert.strictEqual(post({ action: 'gainResend', name: '福山', id: 'r502' }).already, true, '2回目は投稿しない');
+assert.strictEqual(posts.length, n0);
+assert.strictEqual(post({ action: 'gainResend', name: '鈴木', id: 'r400' }).ok, false, '他人の報告は送れない');
+// 片付け（このあとの集計のテストに混ざらないように）
+['r429', 'r400', 'r502'].forEach(id => post({ action: 'gainUndo', name: '福山', id }));
 
 // ─── 同じ送信IDは二重に記録しない ───
 const before = ss.getSheetByName('獲得')._grid.length, nPosts = posts.length;
