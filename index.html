@@ -71,7 +71,7 @@
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 
-  .app { max-width: 480px; margin: 0 auto; padding-block: 18px 130px; }
+  .app { max-width: var(--sg-page-w, 560px); margin: 0 auto; padding-block: 18px 130px; }
   .stack { display: flex; flex-direction: column; gap: 14px; }
 
   /* ─── ヘッダー ─── */
@@ -280,7 +280,7 @@
     background: var(--bar-bg); border-top: 1px solid var(--line);
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
   }
-  .bar-inner { max-width: 480px; margin: 0 auto; }
+  .bar-inner { max-width: calc(var(--sg-page-w, 560px) - 32px); margin: 0 auto; }
   .primary {
     width: 100%; min-height: 54px; border: none; border-radius: 14px;
     background: var(--accent); color: var(--accent-ink);
@@ -301,7 +301,7 @@
     animation: up .22s ease;
   }
   @keyframes up { from { transform: translateY(40px); opacity: 0; } }
-  .sheet-inner { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+  .sheet-inner { max-width: var(--sg-page-w, 560px); margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
   .grabber { width: 40px; height: 4px; border-radius: 2px; background: var(--line-strong); margin: 0 auto 4px; }
   .sheet h3 { margin: 0; font-size: 18px; font-weight: 900; }
   .sheet .sub { font-size: 13px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
@@ -411,10 +411,10 @@
   <!-- ═══ 入力画面 ═══ -->
   <div class="stack" id="form-screen">
 
-    <header class="head">
+    <header class="head sg-head">
       <div>
-        <div class="eyebrow">Sieg 業務ポータル</div>
-        <h1>日報</h1>
+        <div class="sg-eyebrow">Sieg 業務ポータル</div>
+        <h1 class="sg-title">日報</h1>
       </div>
       <label class="date-pill" for="date">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
