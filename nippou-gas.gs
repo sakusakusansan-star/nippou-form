@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-10-31b';
+var CODE_VERSION = '2026-11-01';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -302,11 +302,13 @@ function dedupeKey_(id) { return 'nippou:' + id; }
 // /exec をブラウザで直接開くと、デプロイ確認の応答が返る。日報は記録しない。
 //   ?action=gains&name=名前&date=yyyy-mm-dd … その人のその日の獲得報告
 //   ?action=gainStats&from=yyyy-mm          … その月以降の獲得報告の月ごとの合計（戦闘力用）
+//   ?action=nippouStatus&month=yyyy-mm      … その月に日報を出した日（人ごと。みんなの状況の画面用）
 function doGet(e) {
   var q = (e && e.parameter) || {};
   try {
     if (q.action === 'gains') return json_(dayGains_(String(q.name || ''), String(q.date || '')));
     if (q.action === 'gainStats') return json_(gainStats_(String(q.from || '')));
+    if (q.action === 'nippouStatus') return json_(nippouStatus_(String(q.month || '')));
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
@@ -734,4 +736,29 @@ function setFighter_(p) {
   }
   sheet.getRange(data.length + 1, 1, 1, 3).setValues([[name, "'" + id, new Date()]]);
   return { ok: true };
+}
+
+// ═══ 日報の提出状況（みんなの状況の画面用） ═══
+// month（yyyy-mm、無ければ今月）に、だれが何日の日報を出したか。
+//   days: { 名前: ['yyyy-mm-dd', …] }（入店日。同じ日に何回送っても1日）
+//   last: { 名前: 'M/d HH:mm' }（その月に最後に送った日時）
+function nippouStatus_(month) {
+  if (!/^\d{4}-\d{2}$/.test(month)) month = todayYmd_().slice(0, 7);
+  var sheet = getSheet_();
+  var tz = sheet.getParent().getSpreadsheetTimeZone();
+  var data = sheet.getDataRange().getValues();
+  var days = {}, last = {}, lastAt = {};
+  for (var i = 1; i < data.length; i++) {
+    var name = String(data[i][2] || ''), d = ymd_(data[i][1], tz);
+    if (!name || d.slice(0, 7) !== month) continue;
+    days[name] = days[name] || [];
+    if (days[name].indexOf(d) < 0) days[name].push(d);
+    var at = data[i][0];
+    if (Object.prototype.toString.call(at) === '[object Date]' && (!lastAt[name] || at > lastAt[name])) {
+      lastAt[name] = at;
+      last[name] = Utilities.formatDate(at, 'Asia/Tokyo', 'M/d HH:mm');
+    }
+  }
+  Object.keys(days).forEach(function(n) { days[n].sort(); });
+  return { ok: true, month: month, today: todayYmd_(), days: days, last: last };
 }
