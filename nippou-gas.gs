@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-10-31';
+var CODE_VERSION = '2026-10-31b';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -129,7 +129,7 @@ function bar_(pct) {
 //
 // 戻り値：URL未設定なら null、投稿を試みたら成功/失敗の true/false（doPost の応答に使う）
 function sendToDiscord_(copyText, p, meta) {
-  var url = PropertiesService.getScriptProperties().getProperty('DISCORD_WEBHOOK');
+  var url = webhook_('DISCORD_WEBHOOK');
   if (!url) return null;
 
   var m = meta || {};
@@ -189,27 +189,60 @@ function sendToDiscord_(copyText, p, meta) {
     fields.push({ name: '💬 所感', value: note.length > 1000 ? note.slice(0, 1000) + '…' : note });
   }
 
-  try {
-    var res = UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: 'application/json',
-      muteHttpExceptions: true,
-      payload: JSON.stringify({
-        // 投稿者の名前を、Webhook の名前（Bot）ではなく日報を送った人の名前にする
-        username: String(p.name || '日報').slice(0, 80),
-        allowed_mentions: { parse: [] },
-        embeds: [{
-          title: '📋 日報｜' + String(p.name || '') + '　' + (m.dateStr || '') + (achieved ? ' 🎉' : ''),
-          color: color,
-          fields: fields,
-          footer: { text: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm') + ' 送信' }
-        }]
-      })
-    });
-    return res.getResponseCode() < 300;
-  } catch (err) {
-    return false;
+  return postDiscord_(url, {
+    // 投稿者の名前を、Webhook の名前（Bot）ではなく日報を送った人の名前にする
+    username: String(p.name || '日報').slice(0, 80),
+    allowed_mentions: { parse: [] },
+    embeds: [{
+      title: '📋 日報｜' + String(p.name || '') + '　' + (m.dateStr || '') + (achieved ? ' 🎉' : ''),
+      color: color,
+      fields: fields,
+      footer: { text: Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm') + ' 送信' }
+    }]
+  }).ok;
+}
+
+// ═══ Discord への投稿（送り直し付き） ═══
+// Google のサーバーから Discord へ送ると、混み合いで一時的に断られる（429）ことや、
+// Discord 側の一時的なエラー（5xx）・通信の失敗がときどきある。
+// そのときは少し待って最大3回まで送る。429 のときは Discord が指定した秒数だけ待つ（最大5秒）。
+// 4xx（429以外）は送り直しても同じなので、すぐ失敗にする。
+// 戻り値：{ ok, code, body }（code は最後の HTTP ステータス、通信の失敗は 0）
+function postDiscord_(url, payload) {
+  var last = { ok: false, code: 0, body: '' };
+  for (var attempt = 0; attempt < 3; attempt++) {
+    var wait = 0;
+    try {
+      var res = UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        muteHttpExceptions: true,
+        payload: JSON.stringify(payload)
+      });
+      var code = res.getResponseCode(), body = res.getContentText() || '';
+      last = { ok: code < 300, code: code, body: body };
+      if (last.ok) return last;
+      if (code === 429) {
+        var after = 1;
+        try { after = Number(JSON.parse(body).retry_after) || 1; } catch (ignore) {}
+        wait = Math.min(5000, Math.ceil(after * 1000) + 250);
+      } else if (code >= 500) {
+        wait = 1000 * (attempt + 1);
+      } else {
+        return last;
+      }
+    } catch (err) {
+      last = { ok: false, code: 0, body: String(err) };
+      wait = 1000 * (attempt + 1);
+    }
+    if (attempt < 2) Utilities.sleep(wait);
   }
+  return last;
+}
+
+// スクリプト プロパティの Webhook URL（前後の空白・改行は取る）
+function webhook_(key) {
+  return String(PropertiesService.getScriptProperties().getProperty(key) || '').trim();
 }
 
 // ═══ Discord接続テスト ═══
@@ -308,6 +341,7 @@ function handlePost_(e) {
   // 獲得報告の取り消しは、何度来ても結果が同じなので送信IDでの確認はしない
   if (p.action === 'gainUndo') return undoGain_(p);
   if (p.action === 'fighter') return setFighter_(p);
+  if (p.action === 'gainResend') return resendGain_(p);
   var out = p.action === 'gain' ? buildGain_(p, requestId) : buildReport_(p, requestId);
   if (out.ok && requestId) {
     try { cache.put(dedupeKey_(requestId), JSON.stringify(out), DEDUPE_SEC); } catch (ignore) {}
@@ -528,37 +562,54 @@ function buildGain_(p, requestId) {
     dedupe: true,
     id: requestId || '',
     discord: sent ? sent.ok : null,
+    discordCode: sent ? sent.code : null,
     items: day.items,
-    reports: day.reports
+    reports: day.reports,
+    discordOn: day.discordOn
   };
 }
 
 // Discord の獲得報告チャンネルに、いつもの書き方（「ハイエンド1件」を1行ずつ）で投稿する。
 // 取り消しで消せるように ?wait=true でメッセージIDを受け取る。
-// 戻り値：URL未設定なら null、それ以外は { ok, id }
+// 戻り値：URL未設定なら null、それ以外は { ok, id, code }
 function sendGainToDiscord_(name, carrier, date, items, memo) {
-  var url = PropertiesService.getScriptProperties().getProperty('DISCORD_GAIN_WEBHOOK');
+  var url = webhook_('DISCORD_GAIN_WEBHOOK');
   if (!url) return null;
-  var lines = ['**' + CARRIER_LABEL[carrier] + '**　' + dayLabel_(date)];
+  var lines = ['**' + (CARRIER_LABEL[carrier] || carrier) + '**　' + dayLabel_(date)];
   items.forEach(function(x) { lines.push(x.label + x.count + '件'); });
   if (memo) lines.push('', memo);
-  try {
-    var res = UrlFetchApp.fetch(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
-      method: 'post',
-      contentType: 'application/json',
-      muteHttpExceptions: true,
-      payload: JSON.stringify({
-        username: name,
-        content: lines.join('\n').slice(0, 1900),
-        allowed_mentions: { parse: [] }   // メモに @everyone などがあっても通知を飛ばさない
-      })
-    });
-    var ok = res.getResponseCode() < 300, id = '';
-    if (ok) { try { id = String(JSON.parse(res.getContentText()).id || ''); } catch (ignore) {} }
-    return { ok: ok, id: id };
-  } catch (err) {
-    return { ok: false, id: '' };
+  var r = postDiscord_(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'wait=true', {
+    username: name,
+    content: lines.join('\n').slice(0, 1900),
+    allowed_mentions: { parse: [] }   // メモに @everyone などがあっても通知を飛ばさない
+  });
+  var id = '';
+  if (r.ok) { try { id = String(JSON.parse(r.body).id || ''); } catch (ignore) {} }
+  return { ok: r.ok, id: id, code: r.code };
+}
+
+// Discord に出せなかった報告を送り直す（本人の名前と送信IDが合う行）。
+// すでに出ている（メッセージIDがある）ときは何もしない
+function resendGain_(p) {
+  var name = String(p.name || ''), id = String(p.id || '');
+  if (!name || !id) return { ok: false, error: '送り直す報告が分かりません' };
+  var sheet = gainSheet_();
+  var tz = sheet.getParent().getSpreadsheetTimeZone();
+  var data = sheet.getDataRange().getValues();
+  var rows = [], items = [], carrier = '', date = '', memo = '', posted = false;
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][7]) !== id || String(data[i][2]) !== name) continue;
+    rows.push(i + 1);
+    carrier = String(data[i][3]); date = ymd_(data[i][1], tz); memo = String(data[i][6] || '');
+    items.push({ label: String(data[i][4]), count: Number(data[i][5]) || 0 });
+    if (data[i][8]) posted = true;
   }
+  if (!rows.length) return { ok: false, error: 'その報告は見つかりませんでした（取り消し済みかもしれません）' };
+  if (posted) return { ok: true, discord: true, already: true };
+  var sent = sendGainToDiscord_(name, carrier, date, items, memo);
+  if (!sent) return { ok: true, discord: null };
+  if (sent.id) rows.forEach(function(r) { sheet.getRange(r, GAIN_HEAD.length).setValues([[sent.id]]); });
+  return { ok: true, discord: sent.ok, code: sent.code };
 }
 
 // 送った報告を取り消す（本人の名前と送信IDが両方合う行だけ消す）。Discord の投稿も消す
@@ -577,7 +628,7 @@ function undoGain_(p) {
   rows.forEach(function(r) { sheet.deleteRow(r); });   // 下の行から消すので番号はずれない
 
   var discord = null;
-  var url = PropertiesService.getScriptProperties().getProperty('DISCORD_GAIN_WEBHOOK');
+  var url = webhook_('DISCORD_GAIN_WEBHOOK');
   if (url && msgId) {
     try {
       var res = UrlFetchApp.fetch(url.split('?')[0] + '/messages/' + msgId, { method: 'delete', muteHttpExceptions: true });
@@ -607,7 +658,7 @@ function dayGains_(name, date) {
     var rid = String(r[7] || ('row' + i));
     if (!reports[rid]) {
       var at = Object.prototype.toString.call(r[0]) === '[object Date]' ? Utilities.formatDate(r[0], 'Asia/Tokyo', 'HH:mm') : '';
-      reports[rid] = { id: String(r[7] || ''), at: at, carrier: carrier, memo: String(r[6] || ''), items: [] };
+      reports[rid] = { id: String(r[7] || ''), at: at, carrier: carrier, memo: String(r[6] || ''), items: [], posted: !!r[8] };
       rorder.push(rid);
     }
     reports[rid].items.push({ label: label, count: count });
@@ -615,6 +666,7 @@ function dayGains_(name, date) {
   return {
     ok: true,
     date: date,
+    discordOn: !!webhook_('DISCORD_GAIN_WEBHOOK'),   // false なら Discord に出ないのは設定がないため
     items: order.map(function(k) { var p = k.split('\t'); return { carrier: p[0], label: p[1], count: sum[k] }; }),
     reports: rorder.reverse().map(function(k) { return reports[k]; })
   };
