@@ -288,7 +288,7 @@
     transition: transform .08s ease;
   }
   .primary:active { transform: scale(0.98); }
-  .primary:disabled { opacity: .6; }
+  .primary:disabled { opacity: .45; }   /* ほかの画面の .sg-primary と同じ */
 
   /* ─── シート ─── */
   .scrim { position: fixed; inset: 0; z-index: 30; background: var(--scrim); }
@@ -401,7 +401,7 @@
   }
 
   /* ═══ 共通の見た目（sieg-theme.css）に合わせる ═══ */
-  .primary { background: var(--sg-primary); color: var(--sg-on-primary); border-radius: var(--sg-r-sm); }
+  .primary { background: var(--sg-primary); color: var(--sg-on-primary); border-radius: 14px; min-height: 52px; font-size: 16px; letter-spacing: .04em; }   /* .sg-primary と同じ形 */
   .eyebrow { font-size: 11px; letter-spacing: .14em; }
 </style>
 </head>
