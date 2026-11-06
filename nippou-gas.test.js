@@ -79,6 +79,10 @@ function load() {
     }
   };
   global.Utilities.sleep = (ms) => sleeps.push(ms);
+  global.Utilities.DigestAlgorithm = { SHA_256: 'sha256' };
+  global.Utilities.Charset = { UTF_8: 'utf8' };
+  global.Utilities.computeDigest = (alg, s) => [...require('crypto').createHash('sha256').update(s, 'utf8').digest()].map(b => b > 127 ? b - 256 : b);
+  global.Utilities.base64EncodeWebSafe = (bytes) => Buffer.from(bytes.map(b => b & 255)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
   const code = fs.readFileSync(path.join(__dirname, 'nippou-gas.gs'), 'utf8');
   (0, eval)(code);
 }
@@ -95,7 +99,8 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-01');
+assert.strictEqual(r.version, '2026-11-06');
+assert.strictEqual(r.teamPass, true);
 assert.strictEqual(r.gain, true);
 
 // ─── Discord 未設定でも記録できる ───
@@ -227,4 +232,24 @@ r = get({ action: 'nippouStatus', month: '2026-10' });
 assert.strictEqual(r.ok, true);
 assert.deepStrictEqual(r.days, { 鈴木: ['2026-10-30'], 毛利: ['2026-10-29'] }, '同じ日に2回送っても1日・別の月は数えない');
 assert.ok(r.last['鈴木']);
+
+// ─── みんなの状況の合言葉 ───
+const rowsBefore = ss.getSheetByName('日報')._grid.length;
+r = post({ action: 'teamPass', pass: 'x' });
+assert.strictEqual(r.ok, false); assert.strictEqual(r.notSet, true, '未設定なら入れない');
+props.TEAM_PASS = ' sieg-2026 \n';
+r = post({ action: 'teamPass', pass: 'ちがう' });
+assert.deepStrictEqual(r, { ok: false, error: '合言葉がちがいます' }, '通行証は返さない');
+r = post({ action: 'teamPass', pass: 'sieg-2026' });
+assert.strictEqual(r.ok, true); assert.ok(/^[A-Za-z0-9_-]{43}$/.test(r.token), r.token);
+assert.ok(r.token.indexOf('sieg') < 0);
+const tok = r.token;
+assert.deepStrictEqual(post({ action: 'teamPass', token: tok }), { ok: true }, '覚えた通行証で入れる');
+assert.strictEqual(post({ action: 'teamPass', token: 'nise' }).expired, true);
+assert.strictEqual(ss.getSheetByName('日報')._grid.length, rowsBefore, '合言葉の確認で日報は増えない');
+props.TEAM_PASS = 'kaeta';
+assert.strictEqual(post({ action: 'teamPass', token: tok }).expired, true, '合言葉を変えたら前の端末は入り直し');
+for (let i = 0; i < 9; i++) post({ action: 'teamPass', pass: 'x' + i });   // ここまでで10回まちがい
+r = post({ action: 'teamPass', pass: 'kaeta' });
+assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしばらく受け付けない');
 console.log('nippou-gas: all tests passed');

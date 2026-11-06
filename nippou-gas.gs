@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-01';
+var CODE_VERSION = '2026-11-06';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -240,6 +240,34 @@ function postDiscord_(url, payload) {
   return last;
 }
 
+// ═══ みんなの状況（team.html）の合言葉 ═══
+// 合言葉はスクリプト プロパティ TEAM_PASS に入れる（コードや GitHub には書かない）。
+// 正しければ「通行証」（合言葉から作る記号）を返し、端末はそれを覚えて次からは聞かれない。
+// TEAM_PASS を変えると通行証も変わるので、前の合言葉で入っていた端末は入り直しになる。
+// まちがいが10分で10回続いたら、しばらく受け付けない（総当たり対策）。
+var TEAM_FAIL_MAX = 10;
+var TEAM_FAIL_SEC = 600;
+function teamPass_(p) {
+  var pass = webhook_('TEAM_PASS');
+  if (!pass) return { ok: false, notSet: true, error: '合言葉がまだ設定されていません（GAS のスクリプト プロパティ TEAM_PASS）' };
+  var want = teamToken_(pass);
+  if (p.token !== undefined) {
+    return String(p.token) === want ? { ok: true } : { ok: false, expired: true, error: '合言葉が変わりました。入れ直してください' };
+  }
+  var cache = CacheService.getScriptCache();
+  var fails = Number(cache.get('teamPassFails') || 0);
+  if (fails >= TEAM_FAIL_MAX) return { ok: false, locked: true, error: 'まちがいが続いたので、10分ほど待ってからもう一度入れてください' };
+  if (String(p.pass || '').trim() !== pass) {
+    cache.put('teamPassFails', String(fails + 1), TEAM_FAIL_SEC);
+    return { ok: false, error: '合言葉がちがいます' };
+  }
+  return { ok: true, token: want };
+}
+function teamToken_(pass) {
+  var d = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'sieg-team:' + pass, Utilities.Charset.UTF_8);
+  return Utilities.base64EncodeWebSafe(d).replace(/=+$/, '');
+}
+
 // スクリプト プロパティの Webhook URL（前後の空白・改行は取る）
 function webhook_(key) {
   return String(PropertiesService.getScriptProperties().getProperty(key) || '').trim();
@@ -312,7 +340,7 @@ function doGet(e) {
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
-  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true });
+  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true });
 }
 
 function doPost(e) {
@@ -343,6 +371,7 @@ function handlePost_(e) {
   // 獲得報告の取り消しは、何度来ても結果が同じなので送信IDでの確認はしない
   if (p.action === 'gainUndo') return undoGain_(p);
   if (p.action === 'fighter') return setFighter_(p);
+  if (p.action === 'teamPass') return teamPass_(p);
   if (p.action === 'gainResend') return resendGain_(p);
   var out = p.action === 'gain' ? buildGain_(p, requestId) : buildReport_(p, requestId);
   if (out.ok && requestId) {
