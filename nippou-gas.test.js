@@ -42,6 +42,7 @@ function Sheet(name, grid) {
 
 let ss;
 const posts = [];
+const gemini = [], geminiQueue = [];
 const failQueue = [];
 const sleeps = [];
 let props = {};
@@ -54,8 +55,8 @@ function load() {
   };
   const cache = {};
   global.SpreadsheetApp = { openById: () => ss };
-  global.LockService = { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) };
-  global.CacheService = { getScriptCache: () => ({ get: (k) => cache[k] || null, put: (k, v) => { cache[k] = v; } }) };
+  global.LockService = { getScriptLock: () => ({ waitLock() {}, tryLock: () => true, releaseLock() {} }) };
+  global.CacheService = { getScriptCache: () => ({ get: (k) => cache[k] || null, put: (k, v) => { cache[k] = v; }, remove: (k) => { delete cache[k]; } }) };
   global.ContentService = { MimeType: { JSON: 'json' }, createTextOutput: (t) => ({ text: t, setMimeType() { return this; } }) };
   global.PropertiesService = { getScriptProperties: () => ({ getProperty: (k) => props[k] || null, getKeys: () => Object.keys(props) }) };
   global.Logger = { log() {} };
@@ -71,6 +72,12 @@ function load() {
   let msg = 1000;
   global.UrlFetchApp = {
     fetch(url, opt) {
+      if (/generativelanguage/.test(url)) {   // Gemini
+        gemini.push({ url, body: JSON.parse(opt.payload) });
+        const g = geminiQueue.shift() || { text: '「下通で キャッチ30件、すごいがんばり😊」\n（説明）' };
+        if (g.code) return { getResponseCode: () => g.code, getContentText: () => '{"error":{"message":"x"}}' };
+        return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: g.text }] } }] }) };
+      }
       posts.push({ url, method: opt.method, body: opt.payload ? JSON.parse(opt.payload) : null });
       const f = failQueue.shift();   // テストで失敗させたい応答を順に入れる
       if (f === 'throw') throw new Error('Address unavailable');
@@ -99,7 +106,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-06');
+assert.strictEqual(r.version, '2026-11-08');
 assert.strictEqual(r.teamPass, true);
 assert.strictEqual(r.gain, true);
 
@@ -252,4 +259,43 @@ assert.strictEqual(post({ action: 'teamPass', token: tok }).expired, true, '合�
 for (let i = 0; i < 9; i++) post({ action: 'teamPass', pass: 'x' + i });   // ここまでで10回まちがい
 r = post({ action: 'teamPass', pass: 'kaeta' });
 assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしばらく受け付けない');
+
+// ─── 日報へのAIのひとこと ───
+{
+  const today = todayYmd_(), old = Utilities.formatDate(new Date(Date.now() - 4 * 86400000), 'Asia/Tokyo', 'yyyy-MM-dd');
+  post({ requestId: 'c1', name: '山内', date: old, carrier: 'au', place: '近見', approaches: [{ label: 'キャッチ', count: 12 }], gains: [], target: 5, prev: 0, note: '' });
+  post({ requestId: 'c2', name: '山内', date: today, carrier: 'au', place: '下通', approaches: [{ label: 'キャッチ', count: 30 }], gains: [{ label: 'auMNP', count: 1 }], target: 5, prev: 1, note: '雨だったけど粘った' });
+  // 鍵が無いうちは空（ぼのぼのは数字のひとことだけ）
+  delete props.GEMINI_API_KEY;
+  let c = get({ action: 'cheer', name: '山内' });
+  assert.deepStrictEqual([c.ok, c.text], [true, '']);
+  assert.strictEqual(gemini.length, 0);
+  props.GEMINI_API_KEY = 'AIza-test';
+  c = get({ action: 'cheer', name: '山内' });
+  assert.strictEqual(c.text, '下通で キャッチ30件、すごいがんばり', '1行目だけ・かぎかっこと絵文字をのぞく');
+  assert.strictEqual(c.date, today);
+  assert.strictEqual(gemini.length, 1);
+  const prompt = gemini[0].body.contents[0].parts[0].text;
+  assert.ok(prompt.includes('場所：下通') && prompt.includes('アプローチ：30件') && prompt.includes('雨だったけど粘った') && prompt.includes('近見 アプローチ12件'), prompt);
+  assert.ok(!prompt.includes('鈴木') && !prompt.includes('毛利'), 'ほかの人の日報は渡さない');
+  assert.ok(gemini[0].url.includes('gemini-2.5-flash'));
+  // 2回目は残したものを返す（AIは呼ばない）
+  assert.strictEqual(get({ action: 'cheer', name: '山内' }).text, '下通で キャッチ30件、すごいがんばり');
+  assert.strictEqual(gemini.length, 1);
+  assert.strictEqual(ss.getSheetByName('ひとこと')._grid.length, 2, '見出し＋1行');
+  // 古い日報（4日前が最新）の人にはしゃべらない
+  post({ requestId: 'c3', name: '山口', date: old, carrier: 'au', place: '下通', approaches: [], gains: [], target: 0, prev: 0, note: '' });
+  assert.strictEqual(get({ action: 'cheer', name: '山口' }).text, '');
+  // 全部のモデルが失敗 → 空。しばらくは呼び直さない
+  post({ requestId: 'c4', name: '毛利', date: today, carrier: 'Softbank', place: '下通', approaches: [], gains: [], target: 0, prev: 0, note: '' });
+  geminiQueue.push({ code: 500 }, { code: 503 }, { code: 429 });
+  const before = gemini.length;
+  assert.strictEqual(get({ action: 'cheer', name: '毛利' }).text, '');
+  assert.strictEqual(gemini.length - before, 3, '3つのモデルを順に試す');
+  assert.strictEqual(get({ action: 'cheer', name: '毛利' }).text, '');
+  assert.strictEqual(gemini.length - before, 3, '失敗したばかりなので呼ばない');
+  assert.strictEqual(get({}).cheer, true);
+  // 長すぎるひとことは切る
+  assert.strictEqual(cleanCheer_('あ'.repeat(60)).length, 40);
+}
 console.log('nippou-gas: all tests passed');
