@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-06';
+var CODE_VERSION = '2026-11-08';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -268,6 +268,156 @@ function teamToken_(pass) {
   return Utilities.base64EncodeWebSafe(d).replace(/=+$/, '');
 }
 
+// ═══ 日報へのAIのひとこと（ポータルのぼのぼのがしゃべる） ═══
+// その人のいちばん新しい日報（きょうかきのうの分）を Gemini に読ませて、本人へのひとことを作る。
+// 日報を送るときには呼ばない（送信を遅くしないため）。ポータルのホームを開いたときに1回だけ作り、
+// 「ひとこと」シートに残して、2回目からはそれを返す。
+// 鍵はスクリプト プロパティ GEMINI_API_KEY（経費精算と同じ値）。無いとき・失敗したときは text: ''（ぼのぼのは数字のひとことだけ）。
+var CHEER_SHEET = 'ひとこと';
+var CHEER_HEAD = ['作った日時', '名前', '日報のキー', '日付', 'ひとこと'];
+var CHEER_DAYS = 2;            // きょう・きのうの日報まで
+var CHEER_MAX_LEN = 40;
+var CHEER_MODELS = ['gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3.5-flash'];   // 経費精算の領収書読み取りと同じ順
+
+function cheerSheet_() {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var sh = ss.getSheetByName(CHEER_SHEET);
+  if (!sh) { sh = ss.insertSheet(CHEER_SHEET); sh.appendRow(CHEER_HEAD); sh.setFrozenRows(1); }
+  return sh;
+}
+
+// その人の日報（新しい順）。[{ key, date, place, carrier, ap, apText, gain, gainText, target, cum, note }]
+function recentReports_(name, n) {
+  var sheet = getSheet_(), tz = sheet.getParent().getSpreadsheetTimeZone();
+  var data = sheet.getDataRange().getValues(), out = [];
+  for (var i = data.length - 1; i >= 1 && out.length < n; i--) {
+    var r = data[i];
+    if (String(r[2] || '') !== name) continue;
+    var at = r[0];
+    out.push({
+      key: name + '|' + (r[13] || (Object.prototype.toString.call(at) === '[object Date]' ? at.getTime() : String(at))),
+      date: ymd_(r[1], tz) || ymd_(at, tz), carrier: String(r[3] || ''), place: String(r[4] || ''),
+      ap: Number(r[5]) || 0, apText: String(r[6] || ''), gain: Number(r[7]) || 0, gainText: String(r[8] || ''),
+      target: Number(r[9]) || 0, cum: Number(r[10]) || 0, note: String(r[12] || '')
+    });
+  }
+  return out;
+}
+
+function cheer_(name) {
+  name = String(name || '').trim();
+  if (!name) return { ok: false, error: '名前がありません' };
+  var reports = recentReports_(name, 6);
+  var latest = reports[0];
+  if (!latest) return { ok: true, text: '' };
+  var today = todayYmd_(), yest = Utilities.formatDate(new Date(Date.now() - 86400000), 'Asia/Tokyo', 'yyyy-MM-dd');
+  if (latest.date !== today && latest.date !== yest) return { ok: true, text: '' };   // 古い日報にはしゃべらない
+
+  if (!webhook_('GEMINI_API_KEY')) return { ok: true, text: '' };   // 鍵が無い（失敗ではないので、覚えておかない）
+
+  var sh = cheerSheet_();
+  var found = findCheer_(sh, latest.key);
+  if (found !== null) return { ok: true, text: found, date: latest.date };
+
+  // 同じ日報を何台かで同時に開いても、AIを呼ぶのは1回だけ（作っている間は印を置く）。
+  // 日報の送信と同じロックは使わない（AIが遅いときに、日報の送信を待たせないため）
+  var cache = CacheService.getScriptCache(), failKey = 'cheerFail:' + latest.key, busyKey = 'cheerBusy:' + latest.key;
+  if (cache.get(failKey) || cache.get(busyKey)) return { ok: true, text: '' };   // 失敗したばかり・作っている途中
+  try { cache.put(busyKey, '1', 60); } catch (e0) {}
+  var text = '';
+  try { text = makeCheer_(name, reports); } catch (e) { Logger.log('ひとことを作れませんでした: ' + e.message); }
+  try { cache.remove(busyKey); } catch (e1) {}
+  if (!text) { try { cache.put(failKey, '1', 600); } catch (e2) {} return { ok: true, text: '' }; }
+  sh.appendRow([new Date(), name, latest.key, latest.date, text]);
+  return { ok: true, text: text, date: latest.date };
+}
+
+function findCheer_(sh, key) {
+  var last = sh.getLastRow();
+  if (last < 2) return null;
+  var vals = sh.getRange(2, 3, last - 1, 3).getValues();   // C:キー D:日付 E:ひとこと
+  for (var i = vals.length - 1; i >= 0; i--) if (String(vals[i][0]) === key) return String(vals[i][2] || '');
+  return null;
+}
+
+// AIへのお願い（ここを書き換えると、しゃべり方が変わる）
+var CHEER_RULES =
+  'あなたは営業チームのマスコット。メンバーが送った日報を読んで、その本人にかけるひとことを1つだけ作る。\n' +
+  'ルール：\n' +
+  '- 30文字くらいまでの1文。ひらがな多めの、やさしくのんびりした話し言葉（です・ます は使わない）。\n' +
+  '- 日報の中身（数字・場所・メモ）を1つ具体的に拾って、ほめる・ねぎらう・励ます。前の日報と比べて伸びていれば、そこをほめる。\n' +
+  '- 責めない・説教しない・指示しない。数字が少ない日は、動いたことやがんばりをねぎらう。\n' +
+  '- ほかの人の名前や数字は出さない。\n' +
+  '- 絵文字・顔文字・かぎかっこ・記号の飾りは使わない。\n' +
+  '- ひとことだけを返す（前置き・説明・引用符はいらない）。';
+
+function cheerPrompt_(name, reports) {
+  var r = reports[0], lines = [];
+  lines.push('名前：' + name);
+  lines.push('日付：' + r.date + '　場所：' + (r.place || '-') + '　キャリア：' + (r.carrier || '-'));
+  lines.push('アプローチ：' + r.ap + '件' + (r.apText ? '（' + r.apText + '）' : ''));
+  lines.push('獲得：' + r.gain + '件' + (r.gainText ? '（' + r.gainText + '）' : ''));
+  if (r.target) lines.push('今月のMNP：' + r.cum + '件 / 目標 ' + r.target + '件');
+  if (r.note) lines.push('本人のメモ：' + r.note.slice(0, 200));
+  if (reports.length > 1) {
+    lines.push('この前の日報（新しい順）：');
+    reports.slice(1).forEach(function(x) {
+      lines.push('- ' + x.date + ' ' + (x.place || '-') + ' アプローチ' + x.ap + '件 獲得' + x.gain + '件');
+    });
+  }
+  return CHEER_RULES + '\n\n【日報】\n' + lines.join('\n');
+}
+
+function makeCheer_(name, reports) {
+  var key = webhook_('GEMINI_API_KEY');
+  if (!key) return '';
+  var prompt = cheerPrompt_(name, reports);
+  for (var i = 0; i < CHEER_MODELS.length; i++) {
+    var model = CHEER_MODELS[i];
+    var payload = {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.8, maxOutputTokens: 200,
+        thinkingConfig: /gemini-2\.5/.test(model) ? { thinkingBudget: 0 } : { thinkingLevel: 'minimal' } }
+    };
+    try {
+      var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key), {
+        method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+      if (res.getResponseCode() !== 200) { Logger.log('Gemini ' + model + ' HTTP ' + res.getResponseCode()); continue; }
+      var json = JSON.parse(res.getContentText());
+      var parts = json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts || [];
+      var text = cleanCheer_(parts.map(function(p) { return p.text || ''; }).join(''));
+      if (text) return text;
+    } catch (e) {
+      Logger.log('Gemini ' + model + ' ' + e.message);
+    }
+  }
+  return '';
+}
+
+// 1行目だけ・かぎかっこや引用符・絵文字をのぞいて、長すぎたら切る
+function cleanCheer_(s) {
+  var t = String(s || '').split(/\r?\n/).map(function(x) { return x.trim(); }).filter(function(x) { return x; })[0] || '';
+  t = t.replace(/^[「『"'“”]+|[」』"'“”]+$/g, '')
+       .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '')      // 絵文字（サロゲートペア）
+       .replace(/[☀-➿️]/g, '')               // 記号の絵文字
+       .trim();
+  if (t.length > CHEER_MAX_LEN) t = t.slice(0, CHEER_MAX_LEN - 1) + '…';
+  return t;
+}
+
+/**
+ * GASのエディタから実行して、ひとことがどう作られるか試す（シートには残さない）。
+ * 下の名前を、日報を出している人に変えてから実行し、実行ログを見る。
+ */
+function testCheer() {
+  var name = '鈴木';
+  var reports = recentReports_(name, 6);
+  if (!reports.length) { Logger.log(name + 'さんの日報がありません'); return; }
+  Logger.log('鍵：' + (webhook_('GEMINI_API_KEY') ? 'あり' : 'なし（スクリプト プロパティ GEMINI_API_KEY を登録してください）'));
+  Logger.log('ひとこと：' + (makeCheer_(name, reports) || '（作れませんでした）'));
+}
+
 // スクリプト プロパティの Webhook URL（前後の空白・改行は取る）
 function webhook_(key) {
   return String(PropertiesService.getScriptProperties().getProperty(key) || '').trim();
@@ -331,16 +481,18 @@ function dedupeKey_(id) { return 'nippou:' + id; }
 //   ?action=gains&name=名前&date=yyyy-mm-dd … その人のその日の獲得報告
 //   ?action=gainStats&from=yyyy-mm          … その月以降の獲得報告の月ごとの合計（戦闘力用）
 //   ?action=nippouStatus&month=yyyy-mm      … その月に日報を出した日（人ごと。みんなの状況の画面用）
+//   ?action=cheer&name=名前                  … いちばん新しい日報への、AIのひとこと（ポータルのぼのぼの用）
 function doGet(e) {
   var q = (e && e.parameter) || {};
   try {
     if (q.action === 'gains') return json_(dayGains_(String(q.name || ''), String(q.date || '')));
     if (q.action === 'gainStats') return json_(gainStats_(String(q.from || '')));
     if (q.action === 'nippouStatus') return json_(nippouStatus_(String(q.month || '')));
+    if (q.action === 'cheer') return json_(cheer_(String(q.name || '')));
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
-  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true });
+  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true });
 }
 
 function doPost(e) {
