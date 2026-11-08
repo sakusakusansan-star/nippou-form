@@ -107,7 +107,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-08');
+assert.strictEqual(r.version, '2026-11-08b');
 assert.strictEqual(r.teamPass, true);
 assert.strictEqual(r.gain, true);
 
