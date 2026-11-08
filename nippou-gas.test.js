@@ -18,6 +18,7 @@ function Sheet(name, grid) {
     getRange(r, c, nr, nc) {
       nr = nr || 1; nc = nc || 1;
       return {
+        getValue() { return g[r - 1] && g[r - 1][c - 1] !== undefined ? g[r - 1][c - 1] : ''; },
         getValues() {
           const out = [];
           for (let i = 0; i < nr; i++) {
@@ -74,7 +75,7 @@ function load() {
     fetch(url, opt) {
       if (/generativelanguage/.test(url)) {   // Gemini
         gemini.push({ url, body: JSON.parse(opt.payload) });
-        const g = geminiQueue.shift() || { text: '「下通で キャッチ30件、すごいがんばり😊」\n（説明）' };
+        const g = geminiQueue.shift() || { text: JSON.stringify({ cheer: '「下通で キャッチ30件、すごいがんばり😊」\n（説明）', grow: '成約率 先週より 上がったね', hint: '着座に つなげると もっと伸びそう' }) };
         if (g.code) return { getResponseCode: () => g.code, getContentText: () => '{"error":{"message":"x"}}' };
         return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: g.text }] } }] }) };
       }
@@ -260,11 +261,15 @@ for (let i = 0; i < 9; i++) post({ action: 'teamPass', pass: 'x' + i });   // �
 r = post({ action: 'teamPass', pass: 'kaeta' });
 assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしばらく受け付けない');
 
-// ─── 日報へのAIのひとこと ───
+// ─── 日報へのAIのひとこと（ほめる・のびた・ヒント） ───
 {
-  const today = todayYmd_(), old = Utilities.formatDate(new Date(Date.now() - 4 * 86400000), 'Asia/Tokyo', 'yyyy-MM-dd');
+  const day = n => Utilities.formatDate(new Date(Date.now() - n * 86400000), 'Asia/Tokyo', 'yyyy-MM-dd');
+  const today = day(0), old = day(4);
+  // 山内：前の週（8〜13日前）は キャッチ20・獲得0 が2回、今週は きょう キャッチ30＋着座5・獲得2 と 4日前 キャッチ12
+  post({ requestId: 'w1', name: '山内', date: day(10), carrier: 'au', place: '近見', approaches: [{ label: 'キャッチ', count: 20 }], gains: [], target: 5, prev: 0, note: '' });
+  post({ requestId: 'w2', name: '山内', date: day(9), carrier: 'au', place: '近見', approaches: [{ label: 'キャッチ', count: 20 }], gains: [], target: 5, prev: 0, note: '' });
   post({ requestId: 'c1', name: '山内', date: old, carrier: 'au', place: '近見', approaches: [{ label: 'キャッチ', count: 12 }], gains: [], target: 5, prev: 0, note: '' });
-  post({ requestId: 'c2', name: '山内', date: today, carrier: 'au', place: '下通', approaches: [{ label: 'キャッチ', count: 30 }], gains: [{ label: 'auMNP', count: 1 }], target: 5, prev: 1, note: '雨だったけど粘った' });
+  post({ requestId: 'c2', name: '山内', date: today, carrier: 'au', place: '下通', approaches: [{ label: 'キャッチ', count: 30 }, { label: '着座', count: 5 }], gains: [{ label: 'auMNP', count: 2 }], target: 5, prev: 1, note: '雨だったけど粘った' });
   // 鍵が無いうちは空（ぼのぼのは数字のひとことだけ）
   delete props.GEMINI_API_KEY;
   let c = get({ action: 'cheer', name: '山内' });
@@ -272,17 +277,32 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   assert.strictEqual(gemini.length, 0);
   props.GEMINI_API_KEY = 'AIza-test';
   c = get({ action: 'cheer', name: '山内' });
-  assert.strictEqual(c.text, '下通で キャッチ30件、すごいがんばり', '1行目だけ・かぎかっこと絵文字をのぞく');
+  assert.deepStrictEqual([c.text, c.grow, c.hint], ['下通で キャッチ30件、すごいがんばり', '成約率 先週より 上がったね', '着座に つなげると もっと伸びそう'], '1行目だけ・かぎかっこと絵文字をのぞく');
   assert.strictEqual(c.date, today);
   assert.strictEqual(gemini.length, 1);
-  const prompt = gemini[0].body.contents[0].parts[0].text;
-  assert.ok(prompt.includes('場所：下通') && prompt.includes('アプローチ：30件') && prompt.includes('雨だったけど粘った') && prompt.includes('近見 アプローチ12件'), prompt);
+  const body = gemini[0].body, prompt = body.contents[0].parts[0].text;
+  assert.strictEqual(body.generationConfig.responseMimeType, 'application/json');
+  // 伸びたかどうかの数字は GAS で計算して渡す
+  assert.ok(prompt.includes('【直近7日】日報2回　アプローチ47件（キャッチ42・着座5）　獲得2件　成約率4.3%'), prompt);
+  assert.ok(prompt.includes('【その前の7日】日報2回　アプローチ40件（キャッチ40）　獲得0件　成約率0%'), prompt);
+  assert.ok(prompt.includes('【今月のMNP】3件 / 目標 5件') && prompt.includes('雨だったけど粘った') && prompt.includes('近見 アプローチ12件'), prompt);
   assert.ok(!prompt.includes('鈴木') && !prompt.includes('毛利'), 'ほかの人の日報は渡さない');
   assert.ok(gemini[0].url.includes('gemini-2.5-flash'));
   // 2回目は残したものを返す（AIは呼ばない）
-  assert.strictEqual(get({ action: 'cheer', name: '山内' }).text, '下通で キャッチ30件、すごいがんばり');
+  c = get({ action: 'cheer', name: '山内' });
+  assert.deepStrictEqual([c.text, c.grow, c.hint], ['下通で キャッチ30件、すごいがんばり', '成約率 先週より 上がったね', '着座に つなげると もっと伸びそう']);
   assert.strictEqual(gemini.length, 1);
+  assert.deepStrictEqual(ss.getSheetByName('ひとこと')._grid[0], ['作った日時', '名前', '日報のキー', '日付', 'ひとこと', 'のびた', 'ヒント']);
   assert.strictEqual(ss.getSheetByName('ひとこと')._grid.length, 2, '見出し＋1行');
+  // 伸びもヒントもない日は空のまま
+  post({ requestId: 'c5', name: '鈴木', date: today, carrier: 'Softbank', place: '下通', approaches: [], gains: [], target: 0, prev: 0, note: '' });
+  geminiQueue.push({ text: JSON.stringify({ cheer: 'きょうも おつかれさま', grow: '', hint: '' }) });
+  c = get({ action: 'cheer', name: '鈴木' });
+  assert.deepStrictEqual([c.text, c.grow, c.hint], ['きょうも おつかれさま', '', '']);
+  // JSON で返らなかったときは、全体をひとことに
+  post({ requestId: 'c6', name: '福山', date: today, carrier: 'au', place: '下通', approaches: [], gains: [], target: 0, prev: 0, note: '' });
+  geminiQueue.push({ text: 'ゆっくり やすんでね' });
+  assert.strictEqual(get({ action: 'cheer', name: '福山' }).text, 'ゆっくり やすんでね');
   // 古い日報（4日前が最新）の人にはしゃべらない
   post({ requestId: 'c3', name: '山口', date: old, carrier: 'au', place: '下通', approaches: [], gains: [], target: 0, prev: 0, note: '' });
   assert.strictEqual(get({ action: 'cheer', name: '山口' }).text, '');
@@ -295,7 +315,8 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   assert.strictEqual(get({ action: 'cheer', name: '毛利' }).text, '');
   assert.strictEqual(gemini.length - before, 3, '失敗したばかりなので呼ばない');
   assert.strictEqual(get({}).cheer, true);
-  // 長すぎるひとことは切る
+  // 長すぎるひとことは切る・内訳の読み取り
   assert.strictEqual(cleanCheer_('あ'.repeat(60)).length, 40);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(parseBreakdown_('キャッチ6 / 店内2 / キャッチ1'))), { キャッチ: 7, 店内: 2 });
 }
 console.log('nippou-gas: all tests passed');

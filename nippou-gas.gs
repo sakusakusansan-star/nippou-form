@@ -269,13 +269,16 @@ function teamToken_(pass) {
 }
 
 // ═══ 日報へのAIのひとこと（ポータルのぼのぼのがしゃべる） ═══
-// その人のいちばん新しい日報（きょうかきのうの分）を Gemini に読ませて、本人へのひとことを作る。
+// その人のいちばん新しい日報（きょうかきのうの分）と、ここ2週間の流れを Gemini に読ませて、本人への
+//   cheer … ほめる・ねぎらうひとこと
+//   grow  … のびたところ（「できるようになったね」。前の週より本当に伸びたときだけ）
+//   hint  … やわらかいヒント（提案の形。命令しない。いらない日は空）
+// を作る。伸びたかどうかの数字は GAS で計算してから渡す（AIに計算させない）。
 // 日報を送るときには呼ばない（送信を遅くしないため）。ポータルのホームを開いたときに1回だけ作り、
 // 「ひとこと」シートに残して、2回目からはそれを返す。
 // 鍵はスクリプト プロパティ GEMINI_API_KEY（経費精算と同じ値）。無いとき・失敗したときは text: ''（ぼのぼのは数字のひとことだけ）。
 var CHEER_SHEET = 'ひとこと';
-var CHEER_HEAD = ['作った日時', '名前', '日報のキー', '日付', 'ひとこと'];
-var CHEER_DAYS = 2;            // きょう・きのうの日報まで
+var CHEER_HEAD = ['作った日時', '名前', '日報のキー', '日付', 'ひとこと', 'のびた', 'ヒント'];
 var CHEER_MAX_LEN = 40;
 var CHEER_MODELS = ['gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3.5-flash'];   // 経費精算の領収書読み取りと同じ順
 
@@ -283,10 +286,21 @@ function cheerSheet_() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var sh = ss.getSheetByName(CHEER_SHEET);
   if (!sh) { sh = ss.insertSheet(CHEER_SHEET); sh.appendRow(CHEER_HEAD); sh.setFrozenRows(1); }
+  else if (!String(sh.getRange(1, 6).getValue() || '').trim()) sh.getRange(1, 6, 1, 2).setValues([['のびた', 'ヒント']]);   // 後から足した列
   return sh;
 }
 
-// その人の日報（新しい順）。[{ key, date, place, carrier, ap, apText, gain, gainText, target, cum, note }]
+// 内訳 "キャッチ6 / 店内2" → { キャッチ: 6, 店内: 2 }
+function parseBreakdown_(s) {
+  var out = {};
+  String(s || '').split(' / ').forEach(function(part) {
+    var m = part.trim().match(/^(.*\D)(\d+)$/);
+    if (m) out[m[1]] = (out[m[1]] || 0) + Number(m[2]);
+  });
+  return out;
+}
+
+// その人の日報（新しい順）。[{ key, date, place, carrier, ap, apText, aps, gain, gainText, target, cum, note }]
 function recentReports_(name, n) {
   var sheet = getSheet_(), tz = sheet.getParent().getSpreadsheetTimeZone();
   var data = sheet.getDataRange().getValues(), out = [];
@@ -297,86 +311,119 @@ function recentReports_(name, n) {
     out.push({
       key: name + '|' + (r[13] || (Object.prototype.toString.call(at) === '[object Date]' ? at.getTime() : String(at))),
       date: ymd_(r[1], tz) || ymd_(at, tz), carrier: String(r[3] || ''), place: String(r[4] || ''),
-      ap: Number(r[5]) || 0, apText: String(r[6] || ''), gain: Number(r[7]) || 0, gainText: String(r[8] || ''),
+      ap: Number(r[5]) || 0, apText: String(r[6] || ''), aps: parseBreakdown_(r[6]),
+      gain: Number(r[7]) || 0, gainText: String(r[8] || ''),
       target: Number(r[9]) || 0, cum: Number(r[10]) || 0, note: String(r[12] || '')
     });
   }
   return out;
 }
 
+// 直近7日（きょうまで）と、その前の7日の合計。同じ日に2回出していたら新しい方だけ数える
+function twoWeeks_(reports, today) {
+  var t = new Date(today + 'T00:00:00+09:00').getTime(), seen = {};
+  var w = [{ n: 0, ap: 0, gain: 0, aps: {} }, { n: 0, ap: 0, gain: 0, aps: {} }];
+  reports.forEach(function(r) {
+    if (!r.date || seen[r.date]) return;
+    seen[r.date] = true;
+    var days = Math.round((t - new Date(r.date + 'T00:00:00+09:00').getTime()) / 86400000);
+    var k = days >= 0 && days < 7 ? 0 : days >= 7 && days < 14 ? 1 : -1;
+    if (k < 0) return;
+    w[k].n++; w[k].ap += r.ap; w[k].gain += r.gain;
+    Object.keys(r.aps).forEach(function(l) { w[k].aps[l] = (w[k].aps[l] || 0) + r.aps[l]; });
+  });
+  return w;
+}
+function weekLine_(w) {
+  if (!w.n) return '日報なし';
+  var rate = w.ap ? Math.round(w.gain / w.ap * 1000) / 10 : 0;
+  var parts = Object.keys(w.aps).map(function(l) { return l + w.aps[l]; }).join('・');
+  return '日報' + w.n + '回　アプローチ' + w.ap + '件' + (parts ? '（' + parts + '）' : '') + '　獲得' + w.gain + '件　成約率' + rate + '%';
+}
+
 function cheer_(name) {
   name = String(name || '').trim();
   if (!name) return { ok: false, error: '名前がありません' };
-  var reports = recentReports_(name, 6);
+  var reports = recentReports_(name, 30);
   var latest = reports[0];
   if (!latest) return { ok: true, text: '' };
   var today = todayYmd_(), yest = Utilities.formatDate(new Date(Date.now() - 86400000), 'Asia/Tokyo', 'yyyy-MM-dd');
   if (latest.date !== today && latest.date !== yest) return { ok: true, text: '' };   // 古い日報にはしゃべらない
-
   if (!webhook_('GEMINI_API_KEY')) return { ok: true, text: '' };   // 鍵が無い（失敗ではないので、覚えておかない）
 
   var sh = cheerSheet_();
   var found = findCheer_(sh, latest.key);
-  if (found !== null) return { ok: true, text: found, date: latest.date };
+  if (found) return { ok: true, text: found.text, grow: found.grow, hint: found.hint, date: latest.date };
 
   // 同じ日報を何台かで同時に開いても、AIを呼ぶのは1回だけ（作っている間は印を置く）。
   // 日報の送信と同じロックは使わない（AIが遅いときに、日報の送信を待たせないため）
   var cache = CacheService.getScriptCache(), failKey = 'cheerFail:' + latest.key, busyKey = 'cheerBusy:' + latest.key;
   if (cache.get(failKey) || cache.get(busyKey)) return { ok: true, text: '' };   // 失敗したばかり・作っている途中
   try { cache.put(busyKey, '1', 60); } catch (e0) {}
-  var text = '';
-  try { text = makeCheer_(name, reports); } catch (e) { Logger.log('ひとことを作れませんでした: ' + e.message); }
+  var c = null;
+  try { c = makeCheer_(name, reports, today); } catch (e) { Logger.log('ひとことを作れませんでした: ' + e.message); }
   try { cache.remove(busyKey); } catch (e1) {}
-  if (!text) { try { cache.put(failKey, '1', 600); } catch (e2) {} return { ok: true, text: '' }; }
-  sh.appendRow([new Date(), name, latest.key, latest.date, text]);
-  return { ok: true, text: text, date: latest.date };
+  if (!c || !c.text) { try { cache.put(failKey, '1', 600); } catch (e2) {} return { ok: true, text: '' }; }
+  sh.appendRow([new Date(), name, latest.key, latest.date, c.text, c.grow, c.hint]);
+  return { ok: true, text: c.text, grow: c.grow, hint: c.hint, date: latest.date };
 }
 
 function findCheer_(sh, key) {
   var last = sh.getLastRow();
   if (last < 2) return null;
-  var vals = sh.getRange(2, 3, last - 1, 3).getValues();   // C:キー D:日付 E:ひとこと
-  for (var i = vals.length - 1; i >= 0; i--) if (String(vals[i][0]) === key) return String(vals[i][2] || '');
+  var vals = sh.getRange(2, 3, last - 1, 5).getValues();   // C:キー D:日付 E:ひとこと F:のびた G:ヒント
+  for (var i = vals.length - 1; i >= 0; i--) {
+    if (String(vals[i][0]) === key) return { text: String(vals[i][2] || ''), grow: String(vals[i][3] || ''), hint: String(vals[i][4] || '') };
+  }
   return null;
 }
 
 // AIへのお願い（ここを書き換えると、しゃべり方が変わる）
 var CHEER_RULES =
-  'あなたは営業チームのマスコット。メンバーが送った日報を読んで、その本人にかけるひとことを1つだけ作る。\n' +
-  'ルール：\n' +
-  '- 30文字くらいまでの1文。ひらがな多めの、やさしくのんびりした話し言葉（です・ます は使わない）。\n' +
-  '- 日報の中身（数字・場所・メモ）を1つ具体的に拾って、ほめる・ねぎらう・励ます。前の日報と比べて伸びていれば、そこをほめる。\n' +
-  '- 責めない・説教しない・指示しない。数字が少ない日は、動いたことやがんばりをねぎらう。\n' +
+  'あなたは営業チームのマスコット。メンバーが送った日報と、ここ2週間の数字を見て、その本人にかける言葉を作る。\n' +
+  'JSON で cheer・grow・hint の3つを返す。どれも30文字くらいまでの1文。\n' +
+  '- cheer：きょう（いちばん新しい日報）の中身を1つ具体的に拾って、ほめる・ねぎらう。数字が少ない日は、動いたことやがんばりをねぎらう。\n' +
+  '- grow：「できるようになったね」という振り返り。【直近7日】と【その前の7日】を比べて、本当に伸びたところ（件数・成約率・アプローチの種類など）だけを書く。伸びていなければ空文字。\n' +
+  '- hint：やわらかいヒントを1つ。「〜すると もっと伸びそう」「〜してみるのも いいかも」のような提案の形。命令・説教・責める言い方はしない。数字がいい日や、言うことがない日は空文字。\n' +
+  '共通のルール：\n' +
+  '- ひらがな多めの、やさしくのんびりした話し言葉（です・ます は使わない）。\n' +
+  '- 数字は下に書いてあるものだけを使う。計算し直したり、作ったりしない。\n' +
   '- ほかの人の名前や数字は出さない。\n' +
-  '- 絵文字・顔文字・かぎかっこ・記号の飾りは使わない。\n' +
-  '- ひとことだけを返す（前置き・説明・引用符はいらない）。';
+  '- 絵文字・顔文字・かぎかっこ・記号の飾りは使わない。';
 
-function cheerPrompt_(name, reports) {
+var CHEER_SCHEMA = { type: 'OBJECT', properties: { cheer: { type: 'STRING' }, grow: { type: 'STRING' }, hint: { type: 'STRING' } }, required: ['cheer', 'grow', 'hint'] };
+
+function cheerPrompt_(name, reports, today) {
   var r = reports[0], lines = [];
   lines.push('名前：' + name);
-  lines.push('日付：' + r.date + '　場所：' + (r.place || '-') + '　キャリア：' + (r.carrier || '-'));
-  lines.push('アプローチ：' + r.ap + '件' + (r.apText ? '（' + r.apText + '）' : ''));
-  lines.push('獲得：' + r.gain + '件' + (r.gainText ? '（' + r.gainText + '）' : ''));
-  if (r.target) lines.push('今月のMNP：' + r.cum + '件 / 目標 ' + r.target + '件');
+  lines.push('【いちばん新しい日報】' + r.date + '　場所：' + (r.place || '-') + '　キャリア：' + (r.carrier || '-'));
+  lines.push('アプローチ：' + r.ap + '件' + (r.apText ? '（' + r.apText + '）' : '') + '　獲得：' + r.gain + '件' + (r.gainText ? '（' + r.gainText + '）' : ''));
   if (r.note) lines.push('本人のメモ：' + r.note.slice(0, 200));
+  var w = twoWeeks_(reports, today || r.date);
+  lines.push('【直近7日】' + weekLine_(w[0]));
+  lines.push('【その前の7日】' + weekLine_(w[1]));
+  if (r.target) {
+    var d = new Date(today + 'T00:00:00+09:00'), last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    lines.push('【今月のMNP】' + r.cum + '件 / 目標 ' + r.target + '件（月末まで あと' + (last - d.getDate()) + '日）');
+  }
   if (reports.length > 1) {
-    lines.push('この前の日報（新しい順）：');
-    reports.slice(1).forEach(function(x) {
+    lines.push('【この前の日報（新しい順）】');
+    reports.slice(1, 6).forEach(function(x) {
       lines.push('- ' + x.date + ' ' + (x.place || '-') + ' アプローチ' + x.ap + '件 獲得' + x.gain + '件');
     });
   }
-  return CHEER_RULES + '\n\n【日報】\n' + lines.join('\n');
+  return CHEER_RULES + '\n\n' + lines.join('\n');
 }
 
-function makeCheer_(name, reports) {
+function makeCheer_(name, reports, today) {
   var key = webhook_('GEMINI_API_KEY');
-  if (!key) return '';
-  var prompt = cheerPrompt_(name, reports);
+  if (!key) return null;
+  var prompt = cheerPrompt_(name, reports, today || todayYmd_());
   for (var i = 0; i < CHEER_MODELS.length; i++) {
     var model = CHEER_MODELS[i];
     var payload = {
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.8, maxOutputTokens: 200,
+      generationConfig: { temperature: 0.8, maxOutputTokens: 400, responseMimeType: 'application/json', responseSchema: CHEER_SCHEMA,
         thinkingConfig: /gemini-2\.5/.test(model) ? { thinkingBudget: 0 } : { thinkingLevel: 'minimal' } }
     };
     try {
@@ -386,13 +433,16 @@ function makeCheer_(name, reports) {
       if (res.getResponseCode() !== 200) { Logger.log('Gemini ' + model + ' HTTP ' + res.getResponseCode()); continue; }
       var json = JSON.parse(res.getContentText());
       var parts = json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts || [];
-      var text = cleanCheer_(parts.map(function(p) { return p.text || ''; }).join(''));
-      if (text) return text;
+      var raw = parts.map(function(p) { return p.text || ''; }).join('');
+      var obj = null;
+      try { obj = JSON.parse(raw); } catch (e) { obj = { cheer: raw }; }   // JSON で返らなかったら、全体をひとことに
+      var out = { text: cleanCheer_(obj.cheer), grow: cleanCheer_(obj.grow), hint: cleanCheer_(obj.hint) };
+      if (out.text) return out;
     } catch (e) {
       Logger.log('Gemini ' + model + ' ' + e.message);
     }
   }
-  return '';
+  return null;
 }
 
 // 1行目だけ・かぎかっこや引用符・絵文字をのぞいて、長すぎたら切る
@@ -412,10 +462,14 @@ function cleanCheer_(s) {
  */
 function testCheer() {
   var name = '鈴木';
-  var reports = recentReports_(name, 6);
+  var reports = recentReports_(name, 30);
   if (!reports.length) { Logger.log(name + 'さんの日報がありません'); return; }
   Logger.log('鍵：' + (webhook_('GEMINI_API_KEY') ? 'あり' : 'なし（スクリプト プロパティ GEMINI_API_KEY を登録してください）'));
-  Logger.log('ひとこと：' + (makeCheer_(name, reports) || '（作れませんでした）'));
+  var c = makeCheer_(name, reports, todayYmd_());
+  if (!c) { Logger.log('（作れませんでした）'); return; }
+  Logger.log('ほめる：' + c.text);
+  Logger.log('のびた：' + (c.grow || '（なし）'));
+  Logger.log('ヒント：' + (c.hint || '（なし）'));
 }
 
 // スクリプト プロパティの Webhook URL（前後の空白・改行は取る）
