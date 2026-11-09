@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-08b';
+var CODE_VERSION = '2026-11-09';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -266,6 +266,206 @@ function teamPass_(p) {
 function teamToken_(pass) {
   var d = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, 'sieg-team:' + pass, Utilities.Charset.UTF_8);
   return Utilities.base64EncodeWebSafe(d).replace(/=+$/, '');
+}
+
+// みんなの状況の通行証が合っているか（合言葉 TEAM_PASS から作る記号と同じか）
+function teamOk_(token) {
+  var pass = webhook_('TEAM_PASS');
+  return !!pass && String(token || '') === teamToken_(pass);
+}
+
+// ═══ 月末の締め：みんなの状況から、まだの人へ声をかける（日報の Discord チャンネルに出す） ═══
+// 通行証が合うときだけ。続けて押しても 10分に1回まで。@メンションは鳴らさない（文に入っていても）
+var REMIND_GAP_SEC = 600;
+function remind_(p) {
+  if (!teamOk_(p.token)) return { ok: false, expired: true, error: '合言葉を確かめられませんでした。みんなの状況に入り直してください' };
+  var text = String(p.text || '').replace(/\r/g, '').trim().slice(0, 1800);
+  if (!text) return { ok: false, error: '送る文がありません' };
+  var url = webhook_('DISCORD_WEBHOOK');
+  if (!url) return { ok: false, notSet: true, error: 'Discord の送り先（スクリプト プロパティ DISCORD_WEBHOOK）が設定されていません' };
+  var cache = CacheService.getScriptCache();
+  if (cache.get('remindAt')) return { ok: false, tooSoon: true, error: 'さっき送ったばかりです。10分ほどあけてから送ってください' };
+  try { cache.put('remindAt', '1', REMIND_GAP_SEC); } catch (e0) {}   // 2人が同時に押しても1回だけ
+  var r = postDiscord_(url, { username: 'Sieg 締めのお知らせ', content: text, allowed_mentions: { parse: [] } });
+  if (!r.ok) {
+    try { cache.remove('remindAt'); } catch (e1) {}
+    return { ok: false, discord: false, code: r.code, error: 'Discord に送れませんでした（' + r.code + '）。少し待ってからもう一度押してください' };
+  }
+  return { ok: true, discord: true };
+}
+
+// ═══ 年末の「あなたの○年」（ポータルの wrapped.html 用） ═══
+//   日報（入店日がその年）：日報を出した日数・はじめての日・現場（稼働場所）の数と多い順・アプローチと獲得の合計・いちばん獲得した日
+//   獲得報告（獲得シート）：獲得の合計・多かった商品
+//   AI のひとこと（1年をねぎらう）は「ふりかえり」シートに残し、7日たったら作り直す（12月中に数字が増えるため）
+// 同じ日に日報を2回送っていたら、あとの方だけ数える
+var REVIEW_SHEET = 'ふりかえり';
+var REVIEW_HEAD = ['作った日時', '名前', '年', 'ひとこと'];
+var REVIEW_MAX_LEN = 70;
+var REVIEW_KEEP_MS = 7 * 86400000;
+function yearReview_(name, year) {
+  name = String(name || '').trim();
+  if (!name) return { ok: false, error: '名前がありません' };
+  if (!/^\d{4}$/.test(year)) year = todayYmd_().slice(0, 4);
+  var sheet = getSheet_(), tz = sheet.getParent().getSpreadsheetTimeZone();
+  var data = sheet.getDataRange().getValues(), byDay = {};
+  for (var i = 1; i < data.length; i++) {
+    var r = data[i];
+    if (String(r[2] || '') !== name) continue;
+    var d = ymd_(r[1], tz) || ymd_(r[0], tz);
+    if (!d || d.slice(0, 4) !== year) continue;
+    byDay[d] = { place: String(r[4] || '').replace(/\s+/g, ' ').trim(), ap: Number(r[5]) || 0, gain: Number(r[7]) || 0 };
+  }
+  var dates = Object.keys(byDay).sort(), places = {}, ap = 0, gain = 0, best = null;
+  dates.forEach(function(d) {
+    var x = byDay[d];
+    if (x.place) places[x.place] = (places[x.place] || 0) + 1;
+    ap += x.ap; gain += x.gain;
+    if (x.gain > 0 && (!best || x.gain > best.gain)) best = { date: d, gain: x.gain };
+  });
+  var placeList = Object.keys(places).map(function(k) { return { name: k, days: places[k] }; })
+    .sort(function(a, b) { return b.days - a.days || (a.name < b.name ? -1 : 1); });
+  // 獲得報告
+  var gs = gainSheet_(), gtz = gs.getParent().getSpreadsheetTimeZone(), gd = gs.getDataRange().getValues(), items = {}, gTotal = 0;
+  for (var j = 1; j < gd.length; j++) {
+    if (String(gd[j][2] || '') !== name || ymd_(gd[j][1], gtz).slice(0, 4) !== year) continue;
+    var key = String(gd[j][3]) + '\t' + String(gd[j][4]), n = Number(gd[j][5]) || 0;
+    items[key] = (items[key] || 0) + n; gTotal += n;
+  }
+  var top = Object.keys(items).map(function(k) { var a = k.split('\t'); return { carrier: a[0], label: a[1], count: items[k] }; })
+    .filter(function(x) { return x.count > 0; }).sort(function(a, b) { return b.count - a.count; }).slice(0, 3);
+  var out = { ok: true, name: name, year: year, days: dates.length, first: dates[0] || '', placeCount: placeList.length, places: placeList.slice(0, 5),
+    approach: ap, gain: gain, bestDay: best, gains: { total: gTotal, top: top } };
+  out.ai = (dates.length || gTotal) ? reviewAi_(name, year, out) : '';
+  return out;
+}
+
+function reviewSheet_() {
+  var ss = SpreadsheetApp.openById(SHEET_ID), sh = ss.getSheetByName(REVIEW_SHEET);
+  if (!sh) { sh = ss.insertSheet(REVIEW_SHEET); sh.appendRow(REVIEW_HEAD); sh.setFrozenRows(1); }
+  return sh;
+}
+var REVIEW_RULES =
+  'あなたは営業チームのマスコット。メンバーの1年分の数字を見て、その本人に1年をねぎらう言葉を作る。\n' +
+  'JSON で text を返す。60文字くらいまで、1〜2文。\n' +
+  '- 下の数字から1つか2つを具体的に拾って、ほめる・ねぎらう。最後は来年への前向きなひとこと。\n' +
+  '- ひらがな多めの、やさしくのんびりした話し言葉（です・ます は使わない）。\n' +
+  '- 数字は下に書いてあるものだけを使う。計算し直したり、作ったりしない。ほかの人の名前や数字は出さない。\n' +
+  '- 絵文字・顔文字・かぎかっこ・記号の飾りは使わない。';
+function reviewAi_(name, year, s) {
+  var sh = reviewSheet_(), last = sh.getLastRow();
+  if (last >= 2) {
+    var vals = sh.getRange(2, 1, last - 1, 4).getValues();
+    for (var i = vals.length - 1; i >= 0; i--) {
+      if (String(vals[i][1]) !== name || String(vals[i][2]) !== String(year)) continue;
+      var at = vals[i][0];
+      if (Object.prototype.toString.call(at) === '[object Date]' && Date.now() - at.getTime() < REVIEW_KEEP_MS) return String(vals[i][3] || '');
+      break;
+    }
+  }
+  if (!webhook_('GEMINI_API_KEY')) return '';
+  var cache = CacheService.getScriptCache(), k = 'review:' + name + ':' + year;
+  if (cache.get(k)) return '';   // 作っている途中・失敗したばかり
+  try { cache.put(k, '1', 600); } catch (e0) {}
+  var lines = ['名前：' + name, '【' + year + '年】',
+    '日報を出した日：' + s.days + '日' + (s.first ? '（はじめては ' + s.first + '）' : ''),
+    '行った現場：' + s.placeCount + 'か所' + (s.places.length ? '（多い順：' + s.places.slice(0, 3).map(function(x) { return x.name + ' ' + x.days + '日'; }).join('、') + '）' : ''),
+    'アプローチ：' + s.approach + '件　日報の獲得：' + s.gain + '件',
+    '獲得報告：' + s.gains.total + '件' + (s.gains.top.length ? '（多い商品：' + s.gains.top.map(function(x) { return x.label + ' ' + x.count + '件'; }).join('、') + '）' : '')];
+  if (s.bestDay) lines.push('いちばん獲得した日：' + s.bestDay.date + '（' + s.bestDay.gain + '件）');
+  var obj = gemini_(REVIEW_RULES + '\n\n' + lines.join('\n'), { type: 'OBJECT', properties: { text: { type: 'STRING' } }, required: ['text'] }, 300);
+  var text = obj ? cleanText_(obj.text, REVIEW_MAX_LEN) : '';
+  if (!text) return '';   // 失敗：10分は作り直さない（上の印がそのまま残る）
+  try { cache.remove(k); } catch (e1) {}
+  sh.appendRow([new Date(), name, String(year), text]);
+  return text;
+}
+// Gemini に JSON で答えてもらう（ひとことと同じモデルの順）。だめなら null
+function gemini_(prompt, schema, maxTokens) {
+  var key = webhook_('GEMINI_API_KEY');
+  if (!key) return null;
+  for (var i = 0; i < CHEER_MODELS.length; i++) {
+    var model = CHEER_MODELS[i];
+    var payload = {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.8, maxOutputTokens: maxTokens || 400, responseMimeType: 'application/json', responseSchema: schema,
+        thinkingConfig: /gemini-2\.5/.test(model) ? { thinkingBudget: 0 } : { thinkingLevel: 'minimal' } }
+    };
+    try {
+      var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(key), {
+        method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true
+      });
+      if (res.getResponseCode() !== 200) { Logger.log('Gemini ' + model + ' HTTP ' + res.getResponseCode()); continue; }
+      var json = JSON.parse(res.getContentText());
+      var parts = json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts || [];
+      var raw = parts.map(function(x) { return x.text || ''; }).join('');
+      try { return JSON.parse(raw); } catch (e) { return { text: raw }; }
+    } catch (e2) {
+      Logger.log('Gemini ' + model + ' ' + e2.message);
+    }
+  }
+  return null;
+}
+// ひとことと同じ整え方（長さだけ変えられる）
+function cleanText_(s, max) {
+  var t = String(s || '').split(/\r?\n/).map(function(x) { return x.trim(); }).filter(function(x) { return x; }).join('');
+  t = t.replace(/^[「『"'“”]+|[」』"'“”]+$/g, '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').replace(/[☀-➿️]/g, '').trim();
+  if (t.length > max) t = t.slice(0, max - 1) + '…';
+  return t;
+}
+/** GASのエディタから実行して、ふりかえりがどう出るか試す（下の名前を変えて実行し、実行ログを見る） */
+function testYearReview() {
+  var r = yearReview_('鈴木', todayYmd_().slice(0, 4));
+  Logger.log(JSON.stringify(r, null, 1));
+}
+
+// ═══ 不具合の記録 ═══
+// ポータル・各フォームの gas-client.js が、Google とのやりとりに最後まで失敗したとき・画面のプログラムが止まったときに送ってくる。
+// 「エラー記録」シートに1行ずつ残す（多すぎるときは10分に60件まで）。
+// 10分に3件以上続いたら、管理用の Discord（スクリプト プロパティ DISCORD_ADMIN_WEBHOOK。無ければ送らない）に1時間に1回知らせる
+var ERR_SHEET = 'エラー記録';
+var ERR_HEAD = ['日時', '名前', '画面', 'していたこと', '種類', '案内', '詳しく', '端末'];
+var ERR_MAX_PER_10MIN = 60;
+function errSheet_() {
+  var ss = SpreadsheetApp.openById(SHEET_ID), sh = ss.getSheetByName(ERR_SHEET);
+  if (!sh) { sh = ss.insertSheet(ERR_SHEET); sh.appendRow(ERR_HEAD); sh.setFrozenRows(1); }
+  return sh;
+}
+function logError_(p) {
+  var cache = CacheService.getScriptCache(), n = Number(cache.get('errCount') || 0);
+  if (n >= ERR_MAX_PER_10MIN) return { ok: true, dropped: true };
+  try { cache.put('errCount', String(n + 1), 600); } catch (e0) {}
+  var cut = function(v, k) {
+    var t = String(v == null ? '' : v).replace(/[\r\n\t]+/g, ' ').slice(0, k);
+    return /^[=+\-@]/.test(t) ? "'" + t : t;   // シートの式として読まれないように
+  };
+  var row = [new Date(), cut(p.name, 20), cut(p.page, 80), cut(p.what, 60), cut(p.kind, 20), cut(p.msg, 200), cut(p.detail, 400), cut(p.ua, 120)];
+  errSheet_().appendRow(row);
+  var burst = Number(cache.get('errBurst') || 0) + 1;
+  try { cache.put('errBurst', String(burst), 600); } catch (e1) {}
+  var admin = webhook_('DISCORD_ADMIN_WEBHOOK');
+  if (admin && burst >= 3 && !cache.get('errAlerted')) {
+    try { cache.put('errAlerted', '1', 3600); } catch (e2) {}
+    postDiscord_(admin, { username: 'Sieg 見守り', allowed_mentions: { parse: [] },
+      content: 'ここ10分で ' + burst + '件、Google とのやりとりに失敗しています（最新：' + [row[1], row[2], row[5]].filter(String).join('・') + '）。「エラー記録」シートを見てください。' });
+  }
+  return { ok: true };
+}
+// 最近7日の不具合（新しい順に50件まで。みんなの状況の画面用。通行証が合うときだけ）
+function errors_(p) {
+  if (!teamOk_(p.token)) return { ok: false, expired: true, error: '合言葉を確かめられませんでした' };
+  var sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(ERR_SHEET);
+  if (!sh || sh.getLastRow() < 2) return { ok: true, items: [] };
+  var last = sh.getLastRow(), from = Math.max(2, last - 299);
+  var vals = sh.getRange(from, 1, last - from + 1, 8).getValues(), since = Date.now() - 7 * 86400000, items = [];
+  for (var i = vals.length - 1; i >= 0 && items.length < 50; i--) {
+    var at = vals[i][0];
+    if (Object.prototype.toString.call(at) !== '[object Date]') continue;
+    if (at.getTime() < since) break;
+    items.push({ at: Utilities.formatDate(at, 'Asia/Tokyo', 'M/d HH:mm'), name: String(vals[i][1] || ''), page: String(vals[i][2] || ''),
+      what: String(vals[i][3] || ''), kind: String(vals[i][4] || ''), msg: String(vals[i][5] || '') });
+  }
+  return { ok: true, items: items };
 }
 
 // ═══ 日報へのAIのひとこと（ポータルのぼのぼのがしゃべる） ═══
@@ -536,6 +736,7 @@ function dedupeKey_(id) { return 'nippou:' + id; }
 //   ?action=gainStats&from=yyyy-mm          … その月以降の獲得報告の月ごとの合計（戦闘力用）
 //   ?action=nippouStatus&month=yyyy-mm      … その月に日報を出した日（人ごと。みんなの状況の画面用）
 //   ?action=cheer&name=名前                  … いちばん新しい日報への、AIのひとこと（ポータルのぼのぼの用）
+//   ?action=yearReview&name=名前&year=yyyy   … 1年のふりかえり（ポータルの「あなたの○年」用）
 function doGet(e) {
   var q = (e && e.parameter) || {};
   try {
@@ -543,13 +744,21 @@ function doGet(e) {
     if (q.action === 'gainStats') return json_(gainStats_(String(q.from || '')));
     if (q.action === 'nippouStatus') return json_(nippouStatus_(String(q.month || '')));
     if (q.action === 'cheer') return json_(cheer_(String(q.name || '')));
+    if (q.action === 'yearReview') return json_(yearReview_(String(q.name || ''), String(q.year || '')));
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
-  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true });
+  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true, remind: true, yearReview: true, logError: true });
 }
 
 function doPost(e) {
+  // ロックのいらないもの（不具合の記録・締めの声かけ・不具合の一覧）は、日報の送信を待たせないよう先に返す
+  var p0 = null;
+  try { p0 = JSON.parse(e.postData.contents); } catch (ignore) {}
+  if (p0 && (p0.action === 'logError' || p0.action === 'remind' || p0.action === 'errors')) {
+    try { return json_(p0.action === 'logError' ? logError_(p0) : p0.action === 'remind' ? remind_(p0) : errors_(p0)); }
+    catch (err) { return json_({ ok: false, error: String(err) }); }
+  }
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(25000);
@@ -738,7 +947,7 @@ function buildReport_(p, requestId) {
 // ═══════════════════════════════════════════
 var GAIN_SHEET = '獲得';
 var GAIN_HEAD = ['送信日時', '獲得日', '名前', 'キャリア', '商品', '件数', 'メモ', '送信ID', 'DiscordメッセージID'];
-var CARRIER_LABEL = { docomo: 'ドコモ', Softbank: 'SB', au: 'au' };
+var CARRIER_LABEL = { docomo: 'docomo', Softbank: 'SoftBank', au: 'au' };   // 書き方はポータル（sieg-products.js の label）と同じ
 
 function gainSheet_() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
