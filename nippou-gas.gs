@@ -439,7 +439,8 @@ function logError_(p) {
     var t = String(v == null ? '' : v).replace(/[\r\n\t]+/g, ' ').slice(0, k);
     return /^[=+\-@]/.test(t) ? "'" + t : t;   // シートの式として読まれないように
   };
-  var row = [new Date(), cut(p.name, 20), cut(p.page, 80), cut(p.what, 60), cut(p.kind, 20), cut(p.msg, 200), cut(p.detail, 400), cut(p.ua, 120)];
+  // 名前は who で受け取る（name だと、更新前の GAS が日報として記録してしまうため）
+  var row = [new Date(), cut(p.who, 20), cut(p.page, 80), cut(p.what, 60), cut(p.kind, 20), cut(p.msg, 200), cut(p.detail, 400), cut(p.ua, 120)];
   errSheet_().appendRow(row);
   var burst = Number(cache.get('errBurst') || 0) + 1;
   try { cache.put('errBurst', String(burst), 600); } catch (e1) {}

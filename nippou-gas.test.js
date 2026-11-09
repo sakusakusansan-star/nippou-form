@@ -372,18 +372,18 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
 
 // ─── 不具合の記録（シート・式にしない・続いたら管理用 Discord・一覧は通行証） ───
 {
-  assert.deepStrictEqual(post({ action: 'logError', name: '鈴木', page: '/nippou-form/', what: '(送信)', kind: 'timeout', msg: '時間がかかりすぎ', detail: '=HYPERLINK("x")\n2行目', ua: 'iPhone' }), { ok: true });
+  assert.deepStrictEqual(post({ action: 'logError', who: '鈴木', page: '/nippou-form/', what: '(送信)', kind: 'timeout', msg: '時間がかかりすぎ', detail: '=HYPERLINK("x")\n2行目', ua: 'iPhone' }), { ok: true });
   const eg = ss.getSheetByName('エラー記録')._grid;
   assert.deepStrictEqual(eg[0], ['日時', '名前', '画面', 'していたこと', '種類', '案内', '詳しく', '端末']);
   assert.strictEqual(eg[1][6], "'=HYPERLINK(\"x\") 2行目", '式として読まれない・改行は空白');
   props.DISCORD_ADMIN_WEBHOOK = 'https://discord.com/api/webhooks/7/admin';
   const adm = () => posts.filter(x => x.url === props.DISCORD_ADMIN_WEBHOOK).length;
-  post({ action: 'logError', name: '毛利', page: '/sieg-portal/', kind: 'google', msg: 'y' });
+  post({ action: 'logError', who: '毛利', page: '/sieg-portal/', kind: 'google', msg: 'y' });
   assert.strictEqual(adm(), 0, '2件ではまだ知らせない');
-  post({ action: 'logError', name: '毛利', page: '/sieg-portal/', kind: 'google', msg: 'z' });
+  post({ action: 'logError', who: '毛利', page: '/sieg-portal/', kind: 'google', msg: 'z' });
   assert.strictEqual(adm(), 1, '10分に3件で知らせる');
   assert.ok(posts.filter(x => x.url === props.DISCORD_ADMIN_WEBHOOK)[0].body.content.includes('3件'));
-  post({ action: 'logError', name: '毛利', page: '/sieg-portal/', kind: 'google', msg: 'w' });
+  post({ action: 'logError', who: '毛利', page: '/sieg-portal/', kind: 'google', msg: 'w' });
   assert.strictEqual(adm(), 1, '1時間に1回まで');
   assert.strictEqual(post({ action: 'errors', token: 'nise' }).expired, true);
   const list = post({ action: 'errors', token: teamToken_('kaeta') });
