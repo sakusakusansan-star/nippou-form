@@ -107,7 +107,8 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-08b');
+assert.strictEqual(r.version, '2026-11-09');
+assert.ok(r.remind && r.yearReview && r.logError, '新しい読み書きがある');
 assert.strictEqual(r.teamPass, true);
 assert.strictEqual(r.gain, true);
 
@@ -128,7 +129,7 @@ const sent = posts[posts.length - 1];
 assert.ok(/wait=true$/.test(sent.url));
 assert.strictEqual(sent.body.username, '清田');
 assert.deepStrictEqual(sent.body.allowed_mentions, { parse: [] });
-assert.strictEqual(sent.body.content, '**ドコモ**　10/30（金）\nハイエンド1件\n\n@everyone 達成のため11月まわし');
+assert.strictEqual(sent.body.content, '**docomo**　10/30（金）\nハイエンド1件\n\n@everyone 達成のため11月まわし');
 assert.deepStrictEqual(r.items[0], { carrier: 'docomo', label: 'ハイエンド', count: 3 }, '同じ日の分は合計');
 assert.strictEqual(r.reports.length, 2);
 assert.strictEqual(r.reports[0].id, 'a2', '新しい順');
@@ -159,7 +160,7 @@ assert.strictEqual(day.discordOn, true);
 assert.deepStrictEqual(day.reports.map(x => x.id + ':' + x.posted), ['r502:false', 'r400:false', 'r429:true']);
 r = post({ action: 'gainResend', name: '福山', id: 'r502' });
 assert.strictEqual(r.discord, true);
-assert.strictEqual(posts[posts.length - 1].body.content, '**SB**　10/30（金）\npixel2件');
+assert.strictEqual(posts[posts.length - 1].body.content, '**SoftBank**　10/30（金）\npixel2件');
 assert.strictEqual(get({ action: 'gains', name: '福山', date: '2026-10-30' }).reports[0].posted, true);
 n0 = posts.length;
 assert.strictEqual(post({ action: 'gainResend', name: '福山', id: 'r502' }).already, true, '2回目は投稿しない');
@@ -318,5 +319,78 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   // 長すぎるひとことは切る・内訳の読み取り
   assert.strictEqual(cleanCheer_('あ'.repeat(60)).length, 40);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(parseBreakdown_('キャッチ6 / 店内2 / キャッチ1'))), { キャッチ: 7, 店内: 2 });
+}
+// ─── 月末の締め：まだの人への声かけ（通行証・10分に1回・メンションは鳴らさない） ───
+{
+  props.DISCORD_WEBHOOK = 'https://discord.com/api/webhooks/9/day';
+  const t2 = teamToken_('kaeta');
+  assert.strictEqual(post({ action: 'remind', token: 'nise', text: 'x' }).expired, true, '通行証がちがえば送らない');
+  assert.strictEqual(post({ action: 'remind', token: t2, text: '  ' }).ok, false, '空の文は送らない');
+  const n = posts.length;
+  const rr = post({ action: 'remind', token: t2, text: '【11月の締め】\n・鈴木さん：稼働費 3日分 @everyone' });
+  assert.deepStrictEqual(rr, { ok: true, discord: true });
+  const pd = posts[posts.length - 1];
+  assert.strictEqual(pd.url, props.DISCORD_WEBHOOK);
+  assert.deepStrictEqual(pd.body.allowed_mentions, { parse: [] }, '@everyone は鳴らさない');
+  assert.ok(pd.body.content.startsWith('【11月の締め】'));
+  assert.strictEqual(post({ action: 'remind', token: t2, text: 'もう一回' }).tooSoon, true);
+  assert.strictEqual(posts.length, n + 1, '10分に1回');
+}
+
+// ─── 1年のふりかえり（日報：日数・現場・アプローチ・獲得／獲得報告：合計・多い商品／AIのひとこと） ───
+{
+  props.GEMINI_API_KEY = 'k';
+  const rep = (id, date, place, ap, mnp) => post({ requestId: id, name: '年末太郎', date, carrier: 'au', place, approaches: [{ label: 'キャッチ', count: ap }], gains: mnp ? [{ label: 'auMNP', count: mnp }] : [], target: 0, prev: 0, note: '' });
+  rep('y1', '2026-03-02', '下通', 10, 1);
+  rep('y2', '2026-03-02', '下通', 12, 2);            // 同じ日の2回目（こちらを数える）
+  rep('y3', '2026-05-10', ' イオン  熊本 ', 5, 0);
+  rep('y4', '2026-06-01', '下通', 8, 3);
+  rep('y5', '2025-12-30', '下通', 99, 9);            // 前の年
+  post({ action: 'gain', requestId: 'yg1', name: '年末太郎', carrier: 'au', date: '2026-04-01', items: [{ label: 'auMNP', count: 2 }, { label: 'auでんき', count: 5 }] });
+  post({ action: 'gain', requestId: 'yg2', name: '年末太郎', carrier: 'au', date: '2025-11-01', items: [{ label: 'auMNP', count: 9 }] });
+  geminiQueue.push({ text: JSON.stringify({ text: '「1年で 下通に よく いったね😊\nらいねんも よろしく」' }) });
+  const y = get({ action: 'yearReview', name: '年末太郎', year: '2026' });
+  assert.strictEqual(y.ok, true);
+  assert.strictEqual(y.days, 3);
+  assert.strictEqual(y.first, '2026-03-02');
+  assert.strictEqual(y.placeCount, 2);
+  assert.deepStrictEqual(y.places, [{ name: '下通', days: 2 }, { name: 'イオン 熊本', days: 1 }]);
+  assert.strictEqual(y.approach, 12 + 5 + 8);
+  assert.strictEqual(y.gain, 2 + 0 + 3);
+  assert.deepStrictEqual(y.bestDay, { date: '2026-06-01', gain: 3 });
+  assert.strictEqual(y.gains.total, 7);
+  assert.deepStrictEqual(y.gains.top, [{ carrier: 'au', label: 'auでんき', count: 5 }, { carrier: 'au', label: 'auMNP', count: 2 }]);
+  assert.strictEqual(y.ai, '1年で 下通に よく いったねらいねんも よろしく');
+  assert.ok(/行った現場：2か所/.test(gemini[gemini.length - 1].body.contents[0].parts[0].text), 'AIに数字を渡す');
+  const g0 = gemini.length;
+  assert.strictEqual(get({ action: 'yearReview', name: '年末太郎', year: '2026' }).ai, y.ai, '2回目はシートから');
+  assert.strictEqual(gemini.length, g0, 'AIを呼び直さない');
+  const none = get({ action: 'yearReview', name: 'だれも', year: '2026' });
+  assert.ok(none.ok && none.days === 0 && none.ai === '' && gemini.length === g0, '何もない人にはAIを呼ばない');
+  assert.strictEqual(get({ action: 'yearReview', name: '' }).ok, false);
+}
+
+// ─── 不具合の記録（シート・式にしない・続いたら管理用 Discord・一覧は通行証） ───
+{
+  assert.deepStrictEqual(post({ action: 'logError', who: '鈴木', page: '/nippou-form/', what: '(送信)', kind: 'timeout', msg: '時間がかかりすぎ', detail: '=HYPERLINK("x")\n2行目', ua: 'iPhone' }), { ok: true });
+  const eg = ss.getSheetByName('エラー記録')._grid;
+  assert.deepStrictEqual(eg[0], ['日時', '名前', '画面', 'していたこと', '種類', '案内', '詳しく', '端末']);
+  assert.strictEqual(eg[1][6], "'=HYPERLINK(\"x\") 2行目", '式として読まれない・改行は空白');
+  props.DISCORD_ADMIN_WEBHOOK = 'https://discord.com/api/webhooks/7/admin';
+  const adm = () => posts.filter(x => x.url === props.DISCORD_ADMIN_WEBHOOK).length;
+  post({ action: 'logError', who: '毛利', page: '/sieg-portal/', kind: 'google', msg: 'y' });
+  assert.strictEqual(adm(), 0, '2件ではまだ知らせない');
+  post({ action: 'logError', who: '毛利', page: '/sieg-portal/', kind: 'google', msg: 'z' });
+  assert.strictEqual(adm(), 1, '10分に3件で知らせる');
+  assert.ok(posts.filter(x => x.url === props.DISCORD_ADMIN_WEBHOOK)[0].body.content.includes('3件'));
+  post({ action: 'logError', who: '毛利', page: '/sieg-portal/', kind: 'google', msg: 'w' });
+  assert.strictEqual(adm(), 1, '1時間に1回まで');
+  assert.strictEqual(post({ action: 'errors', token: 'nise' }).expired, true);
+  const list = post({ action: 'errors', token: teamToken_('kaeta') });
+  assert.ok(list.ok);
+  assert.deepStrictEqual(list.items.map(x => x.msg), ['w', 'z', 'y', '時間がかかりすぎ'], '新しい順');
+  assert.strictEqual(list.items[3].page, '/nippou-form/');
+  for (let i = 0; i < 70; i++) post({ action: 'logError', msg: 'many' + i });
+  assert.ok(eg.length <= 61, '10分に60件まで ' + eg.length);
 }
 console.log('nippou-gas: all tests passed');

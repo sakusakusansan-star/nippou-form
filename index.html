@@ -369,6 +369,16 @@
   .done-hero p.warn { color: var(--accent-text); }
   .achieved { display: inline-block; margin-top: 10px; font-size: 13px; font-weight: 700; color: var(--good); background: var(--good-soft); border-radius: 999px; padding: 5px 12px; }
   .month { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px 14px; }
+  /* 送ったあとの「次はこれ」：次のシフトと、ほかの画面へ */
+  .next-box[hidden] { display: none; }
+  .next-shift { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; font-size: 14px; font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
+  .next-shift[hidden] { display: none; }
+  .next-shift small { display: block; font-size: 11.5px; font-weight: 700; color: var(--muted); }
+  .next-shift .ic { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: var(--sg-blue-tint, #E9EEF6); color: var(--sg-blue, #294780); flex: none; }
+  .next-shift .ic svg { width: 18px; height: 18px; }
+  .next-links { display: flex; flex-wrap: wrap; gap: 8px; }
+  .next-links a { flex: 1 1 30%; text-align: center; text-decoration: none; background: var(--surface); border: 1px solid var(--line); color: var(--sg-ink, inherit);
+    border-radius: 14px; padding: 11px 8px; font-size: 14px; font-weight: 800; }
   .month-title { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 12px; }
   .month-grid { display: grid; grid-template-columns: repeat(3, 1fr); }
   .month-grid > div { text-align: center; }
@@ -496,6 +506,10 @@
       </div>
       <div class="compare" id="compare"></div>
     </section>
+    <section class="next-box" id="next-box" hidden aria-label="次はこれ">
+      <div class="next-shift" id="next-shift" hidden></div>
+      <nav class="next-links" id="next-links"></nav>
+    </section>
     <details class="copy" id="copy-details">
       <summary>控えのテキストを表示</summary>
       <pre id="copy-text"></pre>
@@ -586,7 +600,9 @@
     });
   }
 
-  var CARRIERS = ['Softbank', 'docomo', 'au'];
+  // 並びと書き方は全ツールで docomo → au → SoftBank。値（日報のシートに残る）は今まで通り Softbank のまま
+  var CARRIERS = ['docomo', 'au', 'Softbank'];
+  function carrierLabel(v) { return P && P.carrierLabel ? P.carrierLabel(v) : v; }
   var APPROACH_ITEMS = ['キャッチ', '着座'];                    // アプローチの内訳
   // 獲得の内訳は、キャリアごとの商品（ポータルの商品表 /sieg-portal/sieg-products.js）。
   // 区分が MNP の最初の商品を大きいタイルで出す。MNP目標は区分 MNP の合計で進む。
@@ -765,7 +781,7 @@
     var box = $(boxId);
     list.forEach(function(v) {
       var b = document.createElement('button');
-      b.type = 'button'; b.className = 'chip'; b.textContent = v; b.dataset.value = v;
+      b.type = 'button'; b.className = 'chip'; b.textContent = key === 'carrier' ? carrierLabel(v) : v; b.dataset.value = v;
       b.addEventListener('click', function() {
         var prev = state[key], changed = prev !== v;
         state[key] = v;
@@ -788,7 +804,7 @@
     $('profile-edit').hidden = !showEdit;
     $('avatar').textContent = state.name ? state.name.charAt(0) : '?';
     $('who-name').textContent = state.name;
-    $('who-sub').textContent = state.carrier + '　・　' + state.place;
+    $('who-sub').textContent = carrierLabel(state.carrier) + '　・　' + state.place;
     document.querySelectorAll('#name-chips .chip').forEach(function(c) { c.setAttribute('aria-pressed', String(c.dataset.value === state.name)); });
     document.querySelectorAll('#carrier-chips .chip').forEach(function(c) { c.setAttribute('aria-pressed', String(c.dataset.value === state.carrier)); });
     if ($('place') !== document.activeElement) $('place').value = state.place;
@@ -1145,7 +1161,7 @@
     var withTotal = function(total, bd) { return '**' + total + '件**' + (bd ? '\n' + bd : ''); };
     var f = [
       { name: '📍 稼働場所', value: p.place, inline: true },
-      { name: '📶 キャリア', value: p.carrier, inline: true },
+      { name: '📶 キャリア', value: carrierLabel(p.carrier), inline: true },
       { name: '🚶 アプローチ', value: withTotal(a, fmtBreakdown(p.approaches)) },
       { name: '🎯 獲得', value: withTotal(g, fmtBreakdown(p.gains)) }
     ];
@@ -1324,12 +1340,42 @@
 
     $('copy-text').textContent = data.text || '';
     $('copy-details').open = failed;
+    renderNext(p.name);
 
     $('form-screen').hidden = true;
     $('bar').hidden = true;
     $('done-screen').hidden = false;
     window.scrollTo(0, 0);
     if (achieved) confetti();
+  }
+
+  /* 送ったあとの「次はこれ」：次のシフト（ポータルのトップがこの端末に残した分。新しい通信はしない）と、獲得報告・戦闘力・ポータルへ */
+  function escapeHtml(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function(c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function nextShift(name) {
+    try {
+      var hc = JSON.parse(localStorage.getItem('siegHomeCache') || 'null');
+      if (!hc || hc.me !== name || !hc.shift || !hc.shift.ok || !Array.isArray(hc.shift.data)) return null;
+      var now = new Date(), t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), best = null;
+      hc.shift.data.forEach(function(x) {
+        for (var k = x.startDay; k <= x.endDay; k++) {
+          var t = new Date(Number(x.year), Number(x.month) - 1, k).getTime();
+          if (t > t0 && (!best || t < best.t)) best = { t: t, place: x.place || '', flow: x.torihiki || '' };
+        }
+      });
+      return best;
+    } catch (e) { return null; }
+  }
+  function renderNext(name) {
+    var q = '?staff=' + encodeURIComponent(name), ns = nextShift(name), el = $('next-shift');
+    if (ns) {
+      var d = new Date(ns.t), tomorrow = Math.round((ns.t - new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime()) / 864e5) === 1;
+      var when = tomorrow ? 'あした' : (d.getMonth() + 1) + '/' + d.getDate() + '（' + '日月火水木金土'[d.getDay()] + '）';
+      el.innerHTML = '<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></span>'
+        + '<span><small>次のシフト</small>' + escapeHtml(when + '　' + ([ns.place, ns.flow].filter(Boolean).join('・') || '—')) + '</span>';
+      el.hidden = false;
+    } else el.hidden = true;
+    $('next-links').innerHTML = '<a href="/sieg-portal/gain.html' + q + '">獲得報告</a><a href="/sieg-portal/power.html' + q + '">戦闘力を見る</a><a href="/sieg-portal/">ポータルへ</a>';
+    $('next-box').hidden = false;
   }
 
   $('copy-btn').addEventListener('click', function() {
