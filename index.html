@@ -75,7 +75,7 @@
   .stack { display: flex; flex-direction: column; gap: 14px; }
 
   /* ─── ヘッダー ─── */
-  .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 4px 2px 0; }
+  .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 4px 2px 0; }
   .eyebrow {
     font-family: var(--font-num); font-size: 10px; letter-spacing: 3px; color: var(--accent-text);
     display: flex; align-items: center; gap: 6px;
@@ -85,7 +85,7 @@
   .date-pill {
     position: relative; display: inline-flex; align-items: center; gap: 8px;
     background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
-    padding: 9px 14px; font-weight: 700; font-size: 15px; white-space: nowrap;
+    padding: 6px 12px 6px 10px; margin-top: 6px; font-weight: 800; font-size: 13px; white-space: nowrap;
   }
   .date-pill svg { width: 16px; height: 16px; color: var(--muted); }
   .date-pill input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
@@ -425,12 +425,14 @@
       <div>
         <div class="sg-eyebrow">Sieg 業務ポータル</div>
         <h1 class="sg-title">日報</h1>
+        <label class="date-pill" for="date">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
+          <span id="date-text"></span>
+          <input type="date" id="date" aria-label="入店日">
+        </label>
       </div>
-      <label class="date-pill" for="date">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>
-        <span id="date-text"></span>
-        <input type="date" id="date" aria-label="入店日">
-      </label>
+      <!-- 名前は右上（どのツールも同じ）。押すと名前を選ぶシートが出る -->
+      <button type="button" class="sg-who" id="who-pill" aria-label="名前を変える"><i id="avatar">?</i><span id="who-pill-name"></span></button>
     </header>
 
     <div class="notice" id="notice" hidden>
@@ -440,7 +442,6 @@
 
     <section class="profile">
       <div class="profile-view" id="profile-view">
-        <div class="avatar" id="avatar"></div>
         <div class="who">
           <div class="who-name" id="who-name"></div>
           <div class="who-sub" id="who-sub"></div>
@@ -448,10 +449,6 @@
         <button type="button" class="link-btn" id="profile-change">変更</button>
       </div>
       <div class="profile-edit" id="profile-edit" hidden>
-        <div class="group" id="g-name">
-          <div class="group-label">名前 <span class="req">必須</span> <span class="err">選んでください</span></div>
-          <div class="chips" id="name-chips"></div>
-        </div>
         <div class="group" id="g-carrier">
           <div class="group-label">キャリア <span class="req">必須</span> <span class="err">選んでください</span></div>
           <div class="chips" id="carrier-chips"></div>
@@ -536,7 +533,7 @@
     <div class="dc" id="dc-preview"></div>
     <div class="msg" id="confirm-msg" hidden></div>
     <div class="actions">
-      <button type="button" class="primary" id="send">Discordに送信する</button>
+      <button type="button" class="primary" id="send">送信する</button>
       <button type="button" class="text-btn" data-close>修正する</button>
     </div>
   </div>
@@ -759,7 +756,7 @@
     else drop(DRAFT_KEY);
   }
 
-  function profileComplete() { return !!(state.name && state.carrier && state.place.trim()); }
+  function profileComplete() { return !!(state.carrier && state.place.trim()); }   // 名前は右上で選ぶ
 
   function mnpInfo() {
     var mnp = 0;
@@ -794,7 +791,15 @@
       box.appendChild(b);
     });
   }
-  buildChips('name-chips', NAMES, 'name', 'g-name');
+  // 名前：右上を押すと、名前を選ぶシートが出る
+  function pickName() {
+    return SiegNav.pickName(NAMES, state.name).then(function(n) {
+      if (!n || n === state.name) return;
+      state.name = n; rememberForPortal(n);
+      syncFromReports(); renderProfile(); saveDraft();
+    });
+  }
+  $('who-pill').addEventListener('click', pickName);
   buildChips('carrier-chips', CARRIERS, 'carrier', 'g-carrier');
 
   // 名前・キャリア・稼働場所がそろっていれば1行にまとめ、そろっていなければ選択欄を開く
@@ -803,9 +808,10 @@
     $('profile-view').hidden = showEdit;
     $('profile-edit').hidden = !showEdit;
     $('avatar').textContent = state.name ? state.name.charAt(0) : '?';
-    $('who-name').textContent = state.name;
-    $('who-sub').textContent = carrierLabel(state.carrier) + '　・　' + state.place;
-    document.querySelectorAll('#name-chips .chip').forEach(function(c) { c.setAttribute('aria-pressed', String(c.dataset.value === state.name)); });
+    $('who-pill-name').textContent = state.name || '名前を選ぶ';
+    $('who-pill-name').classList.toggle('unset', !state.name);
+    $('who-name').textContent = state.place;
+    $('who-sub').textContent = carrierLabel(state.carrier);
     document.querySelectorAll('#carrier-chips .chip').forEach(function(c) { c.setAttribute('aria-pressed', String(c.dataset.value === state.carrier)); });
     if ($('place') !== document.activeElement) $('place').value = state.place;
     $('profile-done-row').hidden = !profileComplete();
@@ -1035,7 +1041,7 @@
     renderProfile();
     renderCounts();
     $('note').value = state.note;
-    ['g-name', 'g-carrier', 'g-place'].forEach(function(id) { $(id).classList.remove('invalid'); });
+    ['g-carrier', 'g-place'].forEach(function(id) { $(id).classList.remove('invalid'); });
   }
 
   // ─── 初期化 ───
@@ -1111,7 +1117,8 @@
   // ─── 確認 ───
   // 未入力の項目があれば選択欄を開いて赤くし、最初の1つまでスクロールする
   function validate() {
-    var checks = [['g-name', !state.name], ['g-carrier', !state.carrier], ['g-place', !state.place.trim()]];
+    if (!state.name) { pickName(); buzz([30, 40, 30]); return false; }
+    var checks = [['g-carrier', !state.carrier], ['g-place', !state.place.trim()]];
     if (checks.every(function(c) { return !c[1]; })) return true;
     editingProfile = true; renderProfile();
     var first = null;
@@ -1255,7 +1262,7 @@
     var payload = pendingPayload;
     sending = true;
     btn.disabled = true; btn.textContent = '送信中…';
-    var restore = function() { sending = false; btn.disabled = false; btn.textContent = 'Discordに送信する'; };
+    var restore = function() { sending = false; btn.disabled = false; btn.textContent = '送信する'; };
     var fail = function(text) { $('confirm-msg').textContent = text; $('confirm-msg').hidden = false; restore(); };
 
     // GASが送信IDに対応していると分かっていれば、Google側の一時的な失敗は自動でやり直す
