@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-09';
+var CODE_VERSION = '2026-11-16';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -731,6 +731,136 @@ function checkDiscord() {
 var DEDUPE_SEC = 21600;
 function dedupeKey_(id) { return 'nippou:' + id; }
 
+// ═══ 名簿（ポータルと各ツールに出す人） ═══
+// 「名簿」シートに1人1行。みんなの状況（team.html）の「メンバー」から、通行証のある人だけが追加・直す・外すをする。
+// 各画面は ?action=roster で読む（sieg-roster.js）。読めないときは、画面に入っている前の名簿で動く。
+//   区分 … 社員／パートナー。日報・シフト入力・掲示板は区分で決まる
+//   稼働費・経費精算・みんなの状況 … その人が使うなら ○
+//   外した日 … 入っていれば一覧に出さない（記録は消さない。もう一度「戻す」もできる）
+// 名前はシートやスプレッドシートのあちこちで目印になっているので、あとから変えられない（外して、新しく追加する）。
+var ROSTER_SHEET = '名簿';
+var ROSTER_HEAD = ['名前', '区分', 'フルネーム', 'キャリア', '稼働費', '経費精算', 'みんなの状況', '外した日', '直した日時'];
+var ROSTER_TOOLS = ['commute', 'keihi', 'team'];
+var ROSTER_CARRIERS = ['docomo', 'au', 'Softbank'];
+var ROSTER_CACHE = 'roster:v1';
+// シートがまだ無いときの名簿（いままで sieg-roster.js に書いていた内容）
+var ROSTER_SEED = [
+  { name: '福山', group: 'staff', full: '福山康平', carrier: 'Softbank', tools: ['commute', 'keihi', 'team'] },
+  { name: '古川', group: 'staff', full: '古川泰成', carrier: 'Softbank', tools: ['commute', 'keihi'] },
+  { name: '清田', group: 'staff', full: '清田和男', carrier: 'docomo', tools: ['commute', 'keihi'] },
+  { name: '福岡', group: 'staff', full: '', carrier: 'docomo', tools: ['team'] },
+  { name: '山口', group: 'partner', full: '山口真人', carrier: 'au', tools: ['commute'] },
+  { name: '鈴木', group: 'partner', full: '', carrier: 'docomo', tools: ['commute'] },
+  { name: '毛利', group: 'partner', full: '', carrier: 'Softbank', tools: ['commute'] },
+  { name: '山内', group: 'partner', full: '', carrier: '', tools: ['commute'] }
+];
+function rosterRow_(x) {
+  var t = x.tools || [];
+  return [x.name, x.group === 'partner' ? 'パートナー' : '社員', x.full || '', x.carrier || '',
+    t.indexOf('commute') >= 0 ? '○' : '', t.indexOf('keihi') >= 0 ? '○' : '', t.indexOf('team') >= 0 ? '○' : '',
+    x.hidden || '', x.at || ''];
+}
+function rosterFromRow_(r, tz) {
+  var hid = r[7];
+  if (hid instanceof Date) hid = Utilities.formatDate(hid, tz, 'yyyy-MM-dd');
+  var tools = [];
+  if (String(r[4]).trim()) tools.push('commute');
+  if (String(r[5]).trim()) tools.push('keihi');
+  if (String(r[6]).trim()) tools.push('team');
+  var c = String(r[3] || '').trim(), ck = c.toLowerCase();
+  return {
+    name: String(r[0] || '').trim(),
+    group: String(r[1] || '').indexOf('パートナー') >= 0 ? 'partner' : 'staff',
+    full: String(r[2] || '').trim(),
+    carrier: ck === 'docomo' ? 'docomo' : ck === 'au' ? 'au' : ck === 'softbank' ? 'Softbank' : '',
+    tools: tools,
+    hidden: String(hid || '').trim()
+  };
+}
+function rosterSheet_(create) {
+  var ss = SpreadsheetApp.openById(SHEET_ID), sh = ss.getSheetByName(ROSTER_SHEET);
+  if (!sh && create) {
+    sh = ss.insertSheet(ROSTER_SHEET);
+    sh.appendRow(ROSTER_HEAD);
+    ROSTER_SEED.forEach(function(x) { sh.appendRow(rosterRow_(x)); });
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+function readRoster_() {
+  var sh = rosterSheet_(false);
+  if (!sh || sh.getLastRow() < 2) return { people: ROSTER_SEED.map(function(x) { var o = JSON.parse(JSON.stringify(x)); o.hidden = ''; return o; }), seed: true };
+  var tz = sh.getParent().getSpreadsheetTimeZone();
+  var people = sh.getRange(2, 1, sh.getLastRow() - 1, ROSTER_HEAD.length).getValues()
+    .map(function(r) { return rosterFromRow_(r, tz); })
+    .filter(function(x) { return x.name; });
+  return { people: people };
+}
+function roster_() {
+  var cache = CacheService.getScriptCache(), hit = cache.get(ROSTER_CACHE);
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  var r = readRoster_(), out = { ok: true, people: r.people, seed: !!r.seed };
+  try { cache.put(ROSTER_CACHE, JSON.stringify(out), 600); } catch (e) {}   // シートを直接直したときも10分で出る
+  return out;
+}
+// 名前に使えない文字：空白・区切り記号・式の始まり（= + - @）
+function rosterName_(v) {
+  var n = String(v || '').replace(/[\s　]+/g, '');
+  if (!n) return { error: '名前を入れてください' };
+  if (/^[=+\-@]/.test(n) || /[,，、\/\\<>"'`()（）]/.test(n)) return { error: '名前に使えない文字があります' };
+  if (n.length > 10) return { error: '名前は10文字までにしてください' };
+  return { name: n };
+}
+function rosterSave_(p) {
+  if (!teamOk_(p.token)) return { ok: false, expired: true, error: '合言葉を確かめられませんでした。みんなの状況に入り直してください' };
+  var op = String(p.op || ''), x = p.person || {};
+  if (['add', 'update', 'hide', 'show'].indexOf(op) < 0) return { ok: false, error: 'できない操作です' };
+  var nm = rosterName_(x.name);
+  if (nm.error) return { ok: false, error: nm.error };
+  var sh = rosterSheet_(true), tz = sh.getParent().getSpreadsheetTimeZone();
+  var n = sh.getLastRow() - 1;
+  var rows = n > 0 ? sh.getRange(2, 1, n, ROSTER_HEAD.length).getValues() : [];
+  var people = rows.map(function(r) { return rosterFromRow_(r, tz); });
+  var idx = -1;
+  people.forEach(function(q, i) { if (q.name === nm.name) idx = i; });
+  var now = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd HH:mm');
+  var clean = {
+    name: nm.name,
+    group: x.group === 'partner' ? 'partner' : 'staff',
+    full: String(x.full || '').replace(/[\r\n\t]/g, '').trim().replace(/^[=+\-@]+/, '').slice(0, 20),
+    carrier: ROSTER_CARRIERS.indexOf(x.carrier) >= 0 ? x.carrier : '',
+    tools: (Array.isArray(x.tools) ? x.tools : []).filter(function(t, i, a) { return ROSTER_TOOLS.indexOf(t) >= 0 && a.indexOf(t) === i; }),
+    hidden: '', at: now
+  };
+  if (op === 'add') {
+    if (idx >= 0) {
+      var same = people[idx];
+      // 通信が切れて送り直したとき（同じ内容）は、追加できたことにする
+      if (!same.hidden && same.group === clean.group && same.full === clean.full && same.carrier === clean.carrier && same.tools.join() === clean.tools.join()) return rosterOk_(true);
+      return { ok: false, error: '「' + nm.name + '」はもう名簿にいます' + (same.hidden ? '（外した人の中）。外した人から「戻す」を押してください' : '') };
+    }
+    people.push(clean); idx = people.length - 1;
+  } else {
+    if (idx < 0) return { ok: false, error: '「' + nm.name + '」が名簿に見つかりません。開き直してください' };
+    var cur = people[idx];
+    if (op === 'update') { clean.hidden = cur.hidden; people[idx] = clean; }
+    if (op === 'hide') { cur.hidden = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'); cur.at = now; }
+    if (op === 'show') { cur.hidden = ''; cur.at = now; }
+  }
+  // みんなの状況を見る人が1人もいなくなると、だれも名簿を直せなくなる
+  if (!people.some(function(q) { return !q.hidden && q.tools.indexOf('team') >= 0; })) {
+    return { ok: false, error: 'みんなの状況を見る人が1人もいなくなります。ほかの人に「みんなの状況」を付けてからにしてください' };
+  }
+  sh.getRange(idx + 2, 1, 1, ROSTER_HEAD.length).setValues([rosterRow_(people[idx])]);
+  return rosterOk_(false);
+}
+function rosterOk_(already) {
+  try { CacheService.getScriptCache().remove(ROSTER_CACHE); } catch (e) {}
+  var out = roster_();
+  out.already = already;
+  return out;
+}
+
 // ═══ 読み込み ═══
 // /exec をブラウザで直接開くと、デプロイ確認の応答が返る。日報は記録しない。
 //   ?action=gains&name=名前&date=yyyy-mm-dd … その人のその日の獲得報告
@@ -738,6 +868,7 @@ function dedupeKey_(id) { return 'nippou:' + id; }
 //   ?action=nippouStatus&month=yyyy-mm      … その月に日報を出した日（人ごと。みんなの状況の画面用）
 //   ?action=cheer&name=名前                  … いちばん新しい日報への、AIのひとこと（ポータルのぼのぼの用）
 //   ?action=yearReview&name=名前&year=yyyy   … 1年のふりかえり（ポータルの「あなたの○年」用）
+//   ?action=roster                           … 名簿（ポータルと各ツールに出す人）
 function doGet(e) {
   var q = (e && e.parameter) || {};
   try {
@@ -746,10 +877,11 @@ function doGet(e) {
     if (q.action === 'nippouStatus') return json_(nippouStatus_(String(q.month || '')));
     if (q.action === 'cheer') return json_(cheer_(String(q.name || '')));
     if (q.action === 'yearReview') return json_(yearReview_(String(q.name || ''), String(q.year || '')));
+    if (q.action === 'roster') return json_(roster_());
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
-  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true, remind: true, yearReview: true, logError: true });
+  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true, remind: true, yearReview: true, logError: true, roster: true });
 }
 
 function doPost(e) {
@@ -788,6 +920,7 @@ function handlePost_(e) {
   if (p.action === 'gainUndo') return undoGain_(p);
   if (p.action === 'fighter') return setFighter_(p);
   if (p.action === 'teamPass') return teamPass_(p);
+  if (p.action === 'rosterSave') return rosterSave_(p);
   if (p.action === 'gainResend') return resendGain_(p);
   var out = p.action === 'gain' ? buildGain_(p, requestId) : buildReport_(p, requestId);
   if (out.ok && requestId) {

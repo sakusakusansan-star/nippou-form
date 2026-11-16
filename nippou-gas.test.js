@@ -107,7 +107,8 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-09');
+assert.strictEqual(r.version, '2026-11-16');
+assert.strictEqual(r.roster, true);
 assert.ok(r.remind && r.yearReview && r.logError, '新しい読み書きがある');
 assert.strictEqual(r.teamPass, true);
 assert.strictEqual(r.gain, true);
@@ -392,5 +393,63 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   assert.strictEqual(list.items[3].page, '/nippou-form/');
   for (let i = 0; i < 70; i++) post({ action: 'logError', msg: 'many' + i });
   assert.ok(eg.length <= 61, '10分に60件まで ' + eg.length);
+}
+// ─── 名簿（みんなの状況のメンバー） ───
+{
+  const T = teamToken_('kaeta');
+  // シートが無いうちは、いままでの名簿を返す（シートは作らない）
+  let g = get({ action: 'roster' });
+  assert.strictEqual(g.ok, true); assert.strictEqual(g.seed, true);
+  assert.deepStrictEqual(g.people.map(x => x.name), ['福山', '古川', '清田', '福岡', '山口', '鈴木', '毛利', '山内']);
+  assert.deepStrictEqual(g.people[0], { name: '福山', group: 'staff', full: '福山康平', carrier: 'Softbank', tools: ['commute', 'keihi', 'team'], hidden: '' });
+  assert.strictEqual(ss.getSheetByName('名簿'), null, '読むだけではシートを作らない');
+  // 通行証が無いと直せない
+  assert.strictEqual(post({ action: 'rosterSave', token: 'nise', op: 'add', person: { name: '田中', group: 'partner' } }).expired, true);
+  assert.strictEqual(ss.getSheetByName('名簿'), null);
+  // 追加：シートを作って、いままでの8人のあとに足す
+  let r = post({ action: 'rosterSave', token: T, op: 'add', person: { name: ' 田中 ', group: 'partner', full: '田中一郎', carrier: 'au', tools: ['commute', 'commute', 'xx'] } });
+  assert.strictEqual(r.ok, true, JSON.stringify(r));
+  const sh = ss.getSheetByName('名簿');
+  assert.deepStrictEqual(sh._grid[0], ['名前', '区分', 'フルネーム', 'キャリア', '稼働費', '経費精算', 'みんなの状況', '外した日', '直した日時']);
+  assert.strictEqual(sh._grid.length, 10);
+  assert.deepStrictEqual(sh._grid[9].slice(0, 8), ['田中', 'パートナー', '田中一郎', 'au', '○', '', '', '']);
+  assert.ok(/^\d{4}-\d\d-\d\d \d\d:\d\d$/.test(sh._grid[9][8]));
+  assert.deepStrictEqual(r.people[8], { name: '田中', group: 'partner', full: '田中一郎', carrier: 'au', tools: ['commute'], hidden: '' }, '同じものは1つ・知らないツールは入れない');
+  assert.strictEqual(get({ action: 'roster' }).people.length, 9, '読み直しにすぐ出る（キャッシュを消す）');
+  // 同じ内容を送り直したら、追加できたことにする。違う内容なら「もういます」
+  r = post({ action: 'rosterSave', token: T, op: 'add', person: { name: '田中', group: 'partner', full: '田中一郎', carrier: 'au', tools: ['commute'] } });
+  assert.strictEqual(r.ok, true); assert.strictEqual(r.already, true); assert.strictEqual(sh._grid.length, 10);
+  r = post({ action: 'rosterSave', token: T, op: 'add', person: { name: '田中', group: 'staff' } });
+  assert.strictEqual(r.ok, false); assert.ok(r.error.includes('もう名簿にいます'));
+  // 名前のチェック
+  assert.ok(post({ action: 'rosterSave', token: T, op: 'add', person: { name: '　' } }).error.includes('名前を入れて'));
+  assert.ok(post({ action: 'rosterSave', token: T, op: 'add', person: { name: '=HYPERLINK(1)' } }).error.includes('使えない文字'));
+  assert.ok(post({ action: 'rosterSave', token: T, op: 'add', person: { name: 'あいうえおかきくけこさ' } }).error.includes('10文字'));
+  assert.strictEqual(post({ action: 'rosterSave', token: T, op: 'zzz', person: { name: '田中' } }).ok, false);
+  // 直す：区分・キャリア・ツール。フルネームの式は外す
+  r = post({ action: 'rosterSave', token: T, op: 'update', person: { name: '田中', group: 'staff', full: '=田中', carrier: 'Softbank', tools: ['keihi'] } });
+  assert.deepStrictEqual(sh._grid[9].slice(0, 8), ['田中', '社員', '田中', 'Softbank', '', '○', '', '']);
+  assert.strictEqual(post({ action: 'rosterSave', token: T, op: 'update', person: { name: 'いない人' } }).error.includes('見つかりません'), true);
+  // 外す → 一覧に出さない印（記録は消さない）。戻す → 印を消す
+  r = post({ action: 'rosterSave', token: T, op: 'hide', person: { name: '田中' } });
+  assert.ok(r.ok); assert.ok(/^\d{4}-\d\d-\d\d$/.test(r.people[8].hidden), r.people[8].hidden);
+  assert.strictEqual(sh._grid.length, 10, '行は消さない');
+  assert.ok(post({ action: 'rosterSave', token: T, op: 'add', person: { name: '田中', group: 'staff' } }).error.includes('戻す'), '外した人の名前で追加はできない');
+  r = post({ action: 'rosterSave', token: T, op: 'show', person: { name: '田中' } });
+  assert.strictEqual(r.people[8].hidden, '');
+  // みんなの状況を見る人が0人になる変更はしない
+  r = post({ action: 'rosterSave', token: T, op: 'hide', person: { name: '福岡' } });
+  assert.ok(r.ok);
+  r = post({ action: 'rosterSave', token: T, op: 'update', person: { name: '福山', group: 'staff', full: '福山康平', carrier: 'Softbank', tools: ['commute', 'keihi'] } });
+  assert.strictEqual(r.ok, false); assert.ok(r.error.includes('1人もいなくなります'));
+  assert.strictEqual(post({ action: 'rosterSave', token: T, op: 'hide', person: { name: '福山' } }).ok, false);
+  assert.deepStrictEqual(get({ action: 'roster' }).people[0].tools, ['commute', 'keihi', 'team'], '断ったときは変えない');
+  post({ action: 'rosterSave', token: T, op: 'show', person: { name: '福岡' } });
+  // シートを人が直接直しても読める（キャリアの大文字小文字・○以外の印）
+  sh._grid[2][3] = 'SoftBank'; sh._grid[2][5] = 'あり';
+  CacheService.getScriptCache().remove('roster:v1');
+  g = get({ action: 'roster' });
+  assert.strictEqual(g.people[1].carrier, 'Softbank'); assert.deepStrictEqual(g.people[1].tools, ['commute', 'keihi']);
+  assert.strictEqual(g.seed, false);
 }
 console.log('nippou-gas: all tests passed');
