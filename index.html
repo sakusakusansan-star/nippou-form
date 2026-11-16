@@ -727,7 +727,12 @@
     s.gain = zeroCounts(gainItems(s.carrier));
     // 日報を送ったことがない端末では、ポータルで選んだ名前を初期値にする
     if (!s.name) s.name = SiegNav.staff(NAMES);
+    carryEvent(s);
+    return s;
+  }
 
+  // 続いているイベント（同じ稼働場所）の MNP 目標と「前日まで」を入れる
+  function carryEvent(s) {
     var ev = load(EVENT_KEY);
     if (ev && toInt(ev.target) > 0 && ev.place === s.place) {
       var gap = daysBetween(ev.date, s.date);
@@ -779,7 +784,7 @@
   function renderDate() { $('date').value = state.date; $('date-text').textContent = fmtDate(state.date) || '日付を選択'; }
   $('date').addEventListener('change', function() {
     if (!this.value) return;
-    state.date = this.value; renderDate(); saveDraft(); syncFromReports();
+    state.date = this.value; renderDate(); saveDraft(); syncFromReports(); loadShift();
   });
 
   // ─── 基本情報 ───
@@ -792,6 +797,7 @@
         var prev = state[key], changed = prev !== v;
         state[key] = v;
         if (key === 'name') rememberForPortal(v);
+        if (key === 'carrier') { profileTouched = true; shiftNote = ''; }
         if (key === 'carrier' && changed) setCarrierItems(prev);
         if (changed && key !== 'place') syncFromReports();
         $(groupId).classList.remove('invalid');
@@ -805,7 +811,7 @@
     return SiegNav.pickName(NAMES, state.name).then(function(n) {
       if (!n || n === state.name) return;
       state.name = n; rememberForPortal(n);
-      syncFromReports(); renderProfile(); saveDraft();
+      syncFromReports(); renderProfile(); saveDraft(); loadShift();
     });
   }
   $('who-pill').addEventListener('click', pickName);
@@ -820,7 +826,7 @@
     $('who-pill-name').textContent = state.name || '名前を選ぶ';
     $('who-pill-name').classList.toggle('unset', !state.name);
     $('who-name').textContent = state.place;
-    $('who-sub').textContent = carrierLabel(state.carrier);
+    $('who-sub').textContent = carrierLabel(state.carrier) + (shiftNote ? '・' + shiftNote : '');
     document.querySelectorAll('#carrier-chips .chip').forEach(function(c) { c.setAttribute('aria-pressed', String(c.dataset.value === state.carrier)); });
     if ($('place') !== document.activeElement) $('place').value = state.place;
     $('profile-done-row').hidden = !profileComplete();
@@ -829,6 +835,7 @@
   $('profile-done').addEventListener('click', function() { editingProfile = false; renderProfile(); });
   $('place').addEventListener('input', function() {
     state.place = this.value;
+    profileTouched = true; shiftNote = '';
     $('g-place').classList.remove('invalid');
     $('profile-done-row').hidden = !profileComplete();
     saveDraft();
@@ -1014,6 +1021,7 @@
     setTimeout(function() { $('target').focus(); }, 50);
   });
   $('target-save').addEventListener('click', function() {
+    targetTouched = true;
     state.target = toInt($('target').value);
     state.prev = state.target ? toInt($('prev').value) : 0;
     renderCounts(); saveDraft(); closeSheet();
@@ -1038,10 +1046,10 @@
   $('notice-clear').addEventListener('click', function() {
     drop(DRAFT_KEY);
     state = freshState();
-    editingProfile = false;
+    editingProfile = false; profileTouched = false; targetTouched = false; shiftNote = '';
     renderAll();
     $('notice').hidden = true;
-    syncFromReports();
+    syncFromReports(); loadShift();
   });
 
   function renderAll() {
@@ -1053,17 +1061,75 @@
     ['g-carrier', 'g-place'].forEach(function(id) { $(id).classList.remove('invalid'); });
   }
 
+  // ─── その日のシフトからキャリア・稼働場所を入れる ───
+  // パートナー様用シフト入力に入っている、その日のキャリアと場所を最初から入れておく（違うときは「変更」で直せる）。
+  // 自分でキャリアを選んだり場所を書いたりしたあとは、上書きしない。
+  // シフトの場所の書き方と、前に日報で書いた場所が違うときは、日報で書いた方を使う（同じイベントの目標を続けるため）
+  var SHIFT_API = window.SiegRoster && SiegRoster.shiftPartnerApi;
+  var PLACE_MAP_KEY = 'nippou.placeMap.v1';   // シフトの場所 → 日報で書いた場所
+  var profileTouched = false, targetTouched = false, shiftNote = '', shiftLists = {}, shiftSeq = 0;
+  function shiftKey(name, date) { return 'nippou:shift:' + name + ':' + String(date).slice(0, 7); }
+  function shiftList(key) { return shiftLists[key] || SiegNav.cacheGet(key, 12 * 3600e3); }
+  function shiftOn(list, date) {
+    var y = Number(date.slice(0, 4)), m = Number(date.slice(5, 7)), d = Number(date.slice(8, 10));
+    for (var i = 0; list && i < list.length; i++) {
+      var x = list[i];
+      if (Number(x.year) === y && Number(x.month) === m && Number(x.startDay) <= d && d <= Number(x.endDay)) return x;
+    }
+    return null;
+  }
+  function carrierOf(v) { var k = SiegNav.carrierKey(v); return k === 'softbank' ? 'Softbank' : k; }
+  function applyShift(name, date, list) {
+    if (profileTouched || name !== state.name || date !== state.date) return;
+    var x = shiftOn(list, date);
+    if (!x) return;
+    var c = carrierOf(x.carrier), map = load(PLACE_MAP_KEY) || {}, sp = String(x.place || '').trim();
+    var place = sp ? String(map[sp] || sp) : '', prev = state.carrier;
+    if (c && c !== prev) { state.carrier = c; setCarrierItems(prev); }
+    if (place && place !== state.place) {
+      state.place = place;
+      if (!targetTouched) { state.target = 0; state.prev = 0; carryEvent(state); renderCounts(); }
+    }
+    shiftNote = (date === todayStr() ? 'きょう' : Number(date.slice(5, 7)) + '/' + Number(date.slice(8, 10))) + 'のシフトから';
+    renderProfile(); saveDraft();
+    if (state.carrier !== prev) syncFromReports();
+  }
+  function loadShift() {
+    if (!profileTouched) shiftNote = '';
+    renderProfile();
+    if (!SHIFT_API || !window.GasClient || !state.name || !state.date) return;
+    var name = state.name, date = state.date, key = shiftKey(name, date), seq = ++shiftSeq;
+    var cached = shiftList(key);
+    if (cached) applyShift(name, date, cached);
+    GasClient.post(SHIFT_API, { action: 'getMyShifts', name: name, year: Number(date.slice(0, 4)), month: Number(date.slice(5, 7)) }, { retry: true }).then(function(r) {
+      if (!r || !r.ok || !Array.isArray(r.data)) return;
+      shiftLists[key] = r.data; SiegNav.cacheSet(key, r.data);
+      if (seq === shiftSeq) applyShift(name, date, r.data);
+    }).catch(function() {});
+  }
+  // 送ったとき、シフトの場所と書いた場所が違えば覚えておく（次からその書き方で入れる）
+  function learnPlace(p) {
+    var x = shiftOn(shiftList(shiftKey(p.name, p.date)), p.date), sp = x ? String(x.place || '').trim() : '';
+    if (!sp) return;
+    var map = load(PLACE_MAP_KEY) || {};
+    if (p.place && p.place !== sp) map[sp] = p.place; else delete map[sp];
+    var keys = Object.keys(map);
+    if (keys.length > 40) keys.slice(0, keys.length - 40).forEach(function(k) { delete map[k]; });
+    store(PLACE_MAP_KEY, map);
+  }
+
   // ─── 初期化 ───
   state = freshState();
   (function() {
     var draft = load(DRAFT_KEY);
     if (draft && typeof draft === 'object') {
       applyDraft(state, draft);
-      if (hasProgress(state)) showNotice(state.date);
+      if (hasProgress(state)) { showNotice(state.date); profileTouched = true; }   // 書きかけは、そのまま
       else state = freshState();
     }
   })();
   renderAll();
+  loadShift();
 
   // ─── 獲得報告から獲得欄を入れる ───
   // その日にポータルの「獲得報告」で送った件数を Google から読み、
@@ -1315,6 +1381,7 @@
   // 送信できたら、次回の初期値を覚えて下書きを消す
   function rememberSent(p) {
     store(PREFS_KEY, { name: p.name, carrier: p.carrier, place: p.place });
+    learnPlace(p);
     markSubmitted(p.name, p.date);
     if (p.target > 0) {
       store(EVENT_KEY, { place: p.place, date: p.date, target: p.target, prev: p.prev, cumulative: p.prev + mnpOf(p.gains, p.carrier) });
@@ -1416,11 +1483,11 @@
 
   $('again').addEventListener('click', function() {
     state = freshState();
-    editingProfile = false;
+    editingProfile = false; profileTouched = false; targetTouched = false; shiftNote = '';
     pendingPayload = null;
     $('notice').hidden = true;
     renderAll();
-    syncFromReports();
+    syncFromReports(); loadShift();
     $('done-screen').hidden = true;
     $('form-screen').hidden = false;
     $('bar').hidden = false;
