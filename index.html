@@ -416,6 +416,12 @@
   /* ═══ 共通の見た目（sieg-theme.css）に合わせる ═══ */
   .primary { background: var(--sg-primary); color: var(--sg-on-primary); border-radius: 14px; min-height: 52px; font-size: 16px; letter-spacing: .04em; }   /* .sg-primary と同じ形 */
   .eyebrow { font-size: 11px; letter-spacing: .14em; }
+
+  /* ═══ 新しいデザイン：キャリアは選んだときキャリアの色で・数字は数字だけの書体 ═══ */
+  #carrier-chips .chip[aria-pressed="true"][data-value="docomo"] { background: var(--sg-docomo); border-color: var(--sg-docomo); color: #fff; }
+  #carrier-chips .chip[aria-pressed="true"][data-value="au"] { background: var(--sg-au); border-color: var(--sg-au); color: #fff; }
+  #carrier-chips .chip[aria-pressed="true"][data-value="Softbank"] { background: var(--sg-softbank); border-color: var(--sg-softbank); color: #fff; }
+  .score .v, .t-num { font-family: var(--sg-num); font-weight: 700; letter-spacing: 0; }
 </style>
 </head>
 <body>
