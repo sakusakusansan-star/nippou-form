@@ -888,8 +888,8 @@ var PLACE_HEAD = ['名前', '別名', '住所', '店舗稼働', '担当店舗', 
 var PLACE_SEED = [
   { name: '下通', noParen: true }, { name: 'ゆめタウン大牟田', noParen: true },
   { name: '健軍', shop: true }, { name: '松橋', shop: true }, { name: '光の森', shop: true }, { name: '大津', shop: true },
-  { name: '麻生田', shop: true }, { name: '八代', shop: true }, { name: '八代中央', shop: true }, { name: '玉名', shop: true },
-  { name: '玉名中央', shop: true }, { name: '熊本西', shop: true }, { name: '東バイパス', shop: true }, { name: '菊池', shop: true },
+  { name: '麻生田', shop: true }, { name: '八代', shop: true, alias: ['八代中央'] }, { name: '玉名', shop: true, alias: ['玉名中央'] },
+  { name: '熊本西', shop: true }, { name: '東バイパス', shop: true }, { name: '菊池', shop: true },
   { name: '上熊本', shop: true, alias: ['上熊'] }, { name: '近見', shop: true }
 ];
 var MASTER_CARRIERS = ['docomo', 'au', 'SoftBank'];
