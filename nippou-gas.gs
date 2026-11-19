@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-20';
+var CODE_VERSION = '2026-11-21';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -882,6 +882,74 @@ function rosterOk_(already) {
 //   ?action=cheer&name=名前                  … いちばん新しい日報への、AIのひとこと（ポータルのぼのぼの用）
 //   ?action=yearReview&name=名前&year=yyyy   … 1年のふりかえり（ポータルの「あなたの○年」用）
 //   ?action=roster                           … 名簿（ポータルと各ツールに出す人）
+//   ?action=contactStatus&name=名前          … 連絡先を登録したか（電話の下4桁と日付だけ。中身は返さない）
+
+// ═══ 連絡先（パートナー本人が「連絡先の登録」の画面で入れる。みんなの状況だけで見られる） ═══
+// 「連絡先」シートに1人1行。名簿シートには入れない（名簿は合言葉なしで読まれるため）。
+// 本人の画面は名前を選ぶだけで開けるので、そこには中身を返さない（登録したか・下4桁・日付だけ）。
+// 全部を返すのは、合言葉の通行証があるとき（みんなの状況）だけ。
+var CONTACT_SHEET = '連絡先';
+var CONTACT_HEAD = ['名前', '電話', 'メール', '緊急連絡先（名前・続柄）', '緊急連絡先の電話', '更新日時'];
+function contactSheet_(create) {
+  var ss = SpreadsheetApp.openById(SHEET_ID), sh = ss.getSheetByName(CONTACT_SHEET);
+  if (!sh && create) {
+    sh = ss.insertSheet(CONTACT_SHEET);
+    sh.appendRow(CONTACT_HEAD);
+    if (sh.setFrozenRows) sh.setFrozenRows(1);
+  }
+  return sh;
+}
+function contactRows_() {
+  var sh = contactSheet_(false);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, CONTACT_HEAD.length).getValues().map(function(r) {
+    var at = r[5];
+    return { name: String(r[0] || '').trim(), tel: String(r[1] || '').trim(), mail: String(r[2] || '').trim(),
+      emName: String(r[3] || '').trim(), emTel: String(r[4] || '').trim(),
+      at: Object.prototype.toString.call(at) === '[object Date]' ? Utilities.formatDate(at, 'Asia/Tokyo', 'yyyy-MM-dd') : String(at || '').slice(0, 10) };
+  }).filter(function(x) { return x.name; });
+}
+// 電話番号：数字とハイフンだけ。数字が10〜11桁（0から始まる）
+function cleanTel_(v, need) {
+  var t = String(v || '').replace(/[０-９]/g, function(c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .replace(/[ー－‐−―]/g, '-').replace(/[\s　()（）]/g, '');
+  if (!t) return need ? { error: '電話番号を入れてください' } : { tel: '' };
+  if (!/^[0-9-]+$/.test(t)) return { error: '電話番号は数字で入れてください' };
+  var digits = t.replace(/-/g, '');
+  if (!/^0\d{9,10}$/.test(digits)) return { error: '電話番号の桁数を確かめてください（0から始まる10〜11桁）' };
+  return { tel: t };
+}
+function contactSave_(p) {
+  var name = String(p.name || '').trim();
+  var people = (roster_().people || []).filter(function(x) { return !x.hidden; });
+  if (!name || !people.some(function(x) { return x.name === name; })) return { ok: false, error: '名簿にいない名前です。ポータルで名前を選び直してください' };
+  var tel = cleanTel_(p.tel, true); if (tel.error) return { ok: false, error: tel.error };
+  var emTel = cleanTel_(p.emTel, false); if (emTel.error) return { ok: false, error: '緊急連絡先の' + emTel.error };
+  var mail = String(p.mail || '').trim().slice(0, 100);
+  if (mail && !/^[^\s@=+]+@[^\s@]+\.[^\s@]+$/.test(mail)) return { ok: false, error: 'メールアドレスの形を確かめてください' };
+  var emName = String(p.emName || '').replace(/[\r\n\t]/g, ' ').trim().replace(/^[=+\-@]+/, '').slice(0, 30);
+  var sh = contactSheet_(true), now = new Date();
+  var row = [name, tel.tel, mail, emName, emTel.tel, now];
+  var n = sh.getLastRow() - 1, at = -1;
+  if (n > 0) sh.getRange(2, 1, n, 1).getValues().forEach(function(r, i) { if (String(r[0]).trim() === name) at = i + 2; });
+  if (at < 0) at = sh.getLastRow() + 1;
+  var rg = sh.getRange(at, 1, 1, row.length);
+  if (rg.setNumberFormat) rg.setNumberFormat('@');   // 電話番号の先頭の0を消さない
+  rg.setValues([row.map(function(v, i) { return i === 5 ? Utilities.formatDate(now, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm') : v; })]);
+  return { ok: true, status: contactStatus_(name) };
+}
+function contactStatus_(name) {
+  name = String(name || '').trim();
+  var me = contactRows_().filter(function(x) { return x.name === name; })[0];
+  if (!me) return { ok: true, registered: false };
+  var d = me.tel.replace(/-/g, '');
+  return { ok: true, registered: true, tel4: d.slice(-4), at: me.at };
+}
+function contacts_(p) {
+  if (!teamOk_(p.token)) return { ok: false, expired: true, error: '合言葉を確かめられませんでした。みんなの状況に入り直してください' };
+  return { ok: true, people: contactRows_() };
+}
+
 function doGet(e) {
   var q = (e && e.parameter) || {};
   try {
@@ -891,10 +959,11 @@ function doGet(e) {
     if (q.action === 'cheer') return json_(cheer_(String(q.name || '')));
     if (q.action === 'yearReview') return json_(yearReview_(String(q.name || ''), String(q.year || '')));
     if (q.action === 'roster') return json_(roster_());
+    if (q.action === 'contactStatus') return json_(contactStatus_(q.name));
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
-  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true, remind: true, yearReview: true, logError: true, roster: true });
+  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true, remind: true, yearReview: true, logError: true, roster: true, contacts: true });
 }
 
 function doPost(e) {
@@ -934,6 +1003,8 @@ function handlePost_(e) {
   if (p.action === 'fighter') return setFighter_(p);
   if (p.action === 'teamPass') return teamPass_(p);
   if (p.action === 'rosterSave') return rosterSave_(p);
+  if (p.action === 'contactSave') return contactSave_(p);
+  if (p.action === 'contacts') return contacts_(p);
   if (p.action === 'gainResend') return resendGain_(p);
   var out = p.action === 'gain' ? buildGain_(p, requestId) : buildReport_(p, requestId);
   if (out.ok && requestId) {

@@ -107,7 +107,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-20');
+assert.strictEqual(r.version, '2026-11-21');
 assert.strictEqual(r.roster, true);
 assert.ok(r.remind && r.yearReview && r.logError, '新しい読み書きがある');
 assert.strictEqual(r.teamPass, true);
@@ -255,6 +255,27 @@ assert.strictEqual(r.ok, true); assert.ok(/^[A-Za-z0-9_-]{43}$/.test(r.token), r
 assert.ok(r.token.indexOf('sieg') < 0);
 const tok = r.token;
 assert.deepStrictEqual(post({ action: 'teamPass', token: tok }), { ok: true }, '覚えた通行証で入れる');
+// 連絡先：本人が入れる。本人の画面には下4桁と日付だけ。全部はみんなの状況（通行証）だけ
+assert.deepStrictEqual(get({ action: 'contactStatus', name: '鈴木' }), { ok: true, registered: false });
+let cr = post({ action: 'contactSave', name: '鈴木', tel: '０９０ー１２３４ー５６７８', mail: 'suzuki@example.com', emName: '鈴木花子（母）', emTel: '096-123-4567' });
+assert.ok(cr.ok, cr.error);
+assert.deepStrictEqual([cr.status.registered, cr.status.tel4], [true, '5678']);
+assert.ok(!JSON.stringify(cr).includes('090') && !JSON.stringify(get({ action: 'contactStatus', name: '鈴木' })).includes('1234'), '本人の画面には番号を返さない');
+assert.deepStrictEqual(ss.getSheetByName('連絡先')._grid[0], ['名前', '電話', 'メール', '緊急連絡先（名前・続柄）', '緊急連絡先の電話', '更新日時']);
+// 2回目は上書き（行は増えない）
+cr = post({ action: 'contactSave', name: '鈴木', tel: '080-1111-2222' });
+assert.ok(cr.ok, cr.error);
+assert.strictEqual(ss.getSheetByName('連絡先')._grid.length, 2);
+assert.strictEqual(post({ action: 'contacts', token: 'nise' }).expired, true, '通行証が無いと読めない');
+let cl = post({ action: 'contacts', token: tok });
+assert.ok(cl.ok);
+assert.deepStrictEqual(cl.people.map(x => [x.name, x.tel, x.mail, x.emName, x.emTel]), [['鈴木', '080-1111-2222', '', '', '']]);
+// 断るもの：名簿にいない名前・桁数の違う番号・番号なし・変なメール
+assert.ok(/名簿にいない/.test(post({ action: 'contactSave', name: 'だれか', tel: '090-1234-5678' }).error));
+assert.ok(/桁数/.test(post({ action: 'contactSave', name: '鈴木', tel: '090-1234' }).error));
+assert.ok(/入れてください/.test(post({ action: 'contactSave', name: '鈴木', tel: '' }).error));
+assert.ok(/メール/.test(post({ action: 'contactSave', name: '鈴木', tel: '09012345678', mail: '=HYPERLINK(1)' }).error));
+assert.ok(/緊急連絡先/.test(post({ action: 'contactSave', name: '鈴木', tel: '09012345678', emTel: 'abc' }).error));
 assert.strictEqual(post({ action: 'teamPass', token: 'nise' }).expired, true);
 assert.strictEqual(ss.getSheetByName('日報')._grid.length, rowsBefore, '合言葉の確認で日報は増えない');
 props.TEAM_PASS = 'kaeta';

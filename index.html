@@ -383,6 +383,7 @@
   .next-shift .ic { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: var(--sg-blue-tint, #E9EEF6); color: var(--sg-blue, #294780); flex: none; }
   .next-shift .ic svg { width: 18px; height: 18px; }
   .next-links { display: flex; flex-wrap: wrap; gap: 8px; }
+  .next-links a.contact { flex-basis: 100%; border-color: var(--sg-amber, #8A5A00); color: var(--sg-amber, #8A5A00); font-weight: 800; }
   .next-links a { flex: 1 1 30%; text-align: center; text-decoration: none; background: var(--surface); border: 1px solid var(--line); color: var(--sg-ink, inherit);
     border-radius: 14px; padding: 11px 8px; font-size: 14px; font-weight: 800; }
   .month-title { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 12px; }
@@ -1465,7 +1466,11 @@
       el.hidden = false;
     } else el.hidden = true;
     $('next-links').innerHTML = '<a href="/sieg-portal/gain.html' + q + '">獲得報告</a><a href="/sieg-portal/power.html' + q + '">戦闘力を見る</a><a href="/sieg-portal/">ポータルへ</a>';
-    $('next-box').hidden = false;
+    $('next-box').hidden = false;    // 連絡先がまだなら「連絡先を登録」を先頭に出す（登録したかどうかだけ聞く。中身は返らない）
+    GasClient.get(NIPPOU_API, { action: 'contactStatus', name: name }).then(function(st) {
+      if (!st || !st.ok || st.registered || $('next-links').querySelector('.contact')) return;
+      $('next-links').insertAdjacentHTML('afterbegin', '<a class="contact" href="/sieg-portal/contact.html' + q + '">連絡先を登録</a>');
+    }).catch(function() {});
   }
 
   $('copy-btn').addEventListener('click', function() {
