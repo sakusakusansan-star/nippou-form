@@ -107,7 +107,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-21');
+assert.strictEqual(r.version, '2026-11-22');
 assert.strictEqual(r.roster, true);
 assert.ok(r.remind && r.yearReview && r.logError, '新しい読み書きがある');
 assert.strictEqual(r.teamPass, true);
@@ -477,5 +477,59 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   g = get({ action: 'roster' });
   assert.strictEqual(g.people[1].carrier, 'Softbank'); assert.deepStrictEqual(g.people[1].tools, ['commute', 'keihi']);
   assert.strictEqual(g.seed, false);
+}
+// ─── 取引先・場所の一覧 ───
+{
+  const T = teamToken_('kaeta');
+  CacheService.getScriptCache().remove('roster:v1');
+  let g = get({ action: 'roster' });
+  // シートが無いうちは、初めの一覧（今の取引先6つ・店舗稼働の場所）を返す
+  assert.strictEqual(g.masterSeed, true);
+  assert.deepStrictEqual(g.clients.map(c => c.name), ['南国殖産', 'ハイコム', 'サンコミ', 'ダル', 'NOON', '九情']);
+  assert.deepStrictEqual(g.clients[0], { name: '南国殖産', carrier: 'docomo', place: '近見', color: '#2E7D32', hidden: '' });
+  assert.ok(g.places.find(p => p.name === '健軍').shop && g.places.find(p => p.name === '下通').noParen);
+  assert.strictEqual(ss.getSheetByName('取引先'), null, '読むだけではシートを作らない');
+  // 通行証が無いと直せない
+  assert.strictEqual(post({ action: 'masterSave', token: 'nise', kind: 'client', op: 'add', item: { name: 'X' } }).expired, true);
+  // 取引先を足す・直す・外す
+  let r = post({ action: 'masterSave', token: T, kind: 'client', op: 'add', item: { name: '新取引先', carrier: 'au', color: '#123456' } });
+  assert.ok(r.ok, r.error);
+  assert.deepStrictEqual(r.clients[6], { name: '新取引先', carrier: 'au', place: '', color: '#123456', hidden: '' });
+  assert.strictEqual(ss.getSheetByName('取引先')._grid.length, 8, '見出し＋7');
+  assert.ok(post({ action: 'masterSave', token: T, kind: 'client', op: 'add', item: { name: 'ダル' } }).error.includes('もうあります'));
+  assert.ok(post({ action: 'masterSave', token: T, kind: 'client', op: 'add', item: { name: 'Y', color: 'red' } }).error.includes('色'));
+  r = post({ action: 'masterSave', token: T, kind: 'client', op: 'update', key: '新取引先', item: { name: '新取引先2', carrier: 'xx', color: '' } });
+  assert.deepStrictEqual([r.clients[6].name, r.clients[6].carrier], ['新取引先2', ''], '名前を変えられる・知らないキャリアは空');
+  r = post({ action: 'masterSave', token: T, kind: 'client', op: 'hide', item: { name: '新取引先2' } });
+  assert.ok(/^\d{4}-\d\d-\d\d$/.test(r.clients[6].hidden));
+  // 稼働費の場所から取り込む（SB光の森 → 光の森・別名・店舗稼働。自宅・削除した場所は入れない。もうある場所は住所だけ入れる）
+  const k = Sheet('稼働場所', []);
+  [['短縮名', '住所'], ['SB光の森', '熊本県菊池郡菊陽町光の森2丁目3-1'], ['福山自宅', '熊本県玉名郡'], ['ドコモ近見', '熊本県熊本市南区近見7丁目'],
+   ['au・SB下通', '熊本県熊本市中央区手取本町4-12'], ['DCMダイキ', '〒862-0000 熊本県熊本市東区御領2丁目']].forEach(x => k.appendRow(x));
+  const pp = Sheet('場所', []);
+  [['ID', '名前', '場所名', '住所', '作成日時', '削除'], ['a', '毛利', 'SB松橋', '熊本県宇城市松橋町', '', ''], ['b', '鈴木', 'けした場所', '熊本県', '', '削除']].forEach(x => pp.appendRow(x));
+  // 取り込み元は別のブック（日報のブックとは別）
+  const src = { getSheetByName: n => ({ '稼働場所': k, '場所': pp })[n] || null };
+  const realOpen = SpreadsheetApp.openById;
+  SpreadsheetApp.openById = id => id === SHEET_ID ? ss : src;
+  r = post({ action: 'masterImport', token: T });
+  assert.ok(r.ok, r.error);
+  const pl = n => r.places.find(p => p.name === n);
+  assert.deepStrictEqual([pl('光の森').address, pl('光の森').alias, pl('光の森').shop], ['熊本県菊池郡菊陽町光の森2丁目3-1', ['SB光の森'], true]);
+  assert.deepStrictEqual([pl('近見').address, pl('近見').shop], ['熊本県熊本市南区近見7丁目', true]);
+  assert.deepStrictEqual([pl('下通').address, pl('下通').noParen, pl('下通').alias], ['熊本県熊本市中央区手取本町4-12', true, ['au・SB下通']]);
+  assert.deepStrictEqual([pl('DCMダイキ').address, pl('DCMダイキ').shop], ['熊本県熊本市東区御領2丁目', false], '〒は取る・会社名の無い場所は店舗稼働にしない');
+  assert.strictEqual(pl('松橋').address, '熊本県宇城市松橋町');
+  assert.ok(!r.places.some(p => /自宅/.test(p.name) || p.name === 'けした場所'));
+  assert.ok(r.imported.read >= 5);
+  // もう一度取り込んでも増えない
+  const n1 = r.places.length;
+  r = post({ action: 'masterImport', token: T });
+  assert.strictEqual(r.places.length, n1);
+  // 場所を直す（別名は、区切り）
+  r = post({ action: 'masterSave', token: T, kind: 'place', op: 'update', key: 'DCMダイキ', item: { name: 'DCMダイキ', alias: 'ダイキ、DCMダイキ東', address: '熊本県熊本市東区御領2丁目', store: '上熊本' } });
+  assert.deepStrictEqual([pl('DCMダイキ') && r.places.find(p => p.name === 'DCMダイキ').alias, r.places.find(p => p.name === 'DCMダイキ').store], [['ダイキ', 'DCMダイキ東'], '上熊本']);
+  assert.strictEqual(get({ action: 'roster' }).masterSeed, false);
+  SpreadsheetApp.openById = realOpen;
 }
 console.log('nippou-gas: all tests passed');
