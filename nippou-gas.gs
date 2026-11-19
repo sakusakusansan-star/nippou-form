@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-21';
+var CODE_VERSION = '2026-11-22';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -812,7 +812,8 @@ function readRoster_() {
 function roster_() {
   var cache = CacheService.getScriptCache(), hit = cache.get(ROSTER_CACHE);
   if (hit) { try { return JSON.parse(hit); } catch (e) {} }
-  var r = readRoster_(), out = { ok: true, people: r.people, seed: !!r.seed };
+  var r = readRoster_(), m = readMaster_();
+  var out = { ok: true, people: r.people, seed: !!r.seed, clients: m.clients, places: m.places, masterSeed: !!m.seed };
   try { cache.put(ROSTER_CACHE, JSON.stringify(out), 600); } catch (e) {}   // シートを直接直したときも10分で出る
   return out;
 }
@@ -867,6 +868,157 @@ function rosterSave_(p) {
   sh.getRange(idx + 2, 1, 1, ROSTER_HEAD.length).setValues([rosterRow_(people[idx])]);
   return rosterOk_(false);
 }
+// ═══ 取引先・場所の一覧（ポータルと各ツールが使う。名簿と一緒に ?action=roster で配る） ═══
+// 「取引先」シート：シフトの取引先のボタン・シフト表のプルダウンと集計・みんなの状況の色
+// 「場所」シート：シフトの開催場所 → 住所（稼働費の距離）・店舗稼働・担当店舗（Discord用の文のカッコ）
+// お店の住所だけなので、合言葉なしで配ってよい（自宅は入れない）。直すのはみんなの状況（通行証）から。
+var CLIENT_SHEET = '取引先';
+var CLIENT_HEAD = ['名前', 'キャリア', 'いつもの場所', '色', '外した日', '直した日時'];
+var CLIENT_SEED = [
+  { name: '南国殖産', carrier: 'docomo', place: '近見', color: '#2E7D32' },
+  { name: 'ハイコム', carrier: 'SoftBank', place: '', color: '#E65100' },
+  { name: 'サンコミ', carrier: 'au', place: '', color: '#6A1B9A' },
+  { name: 'ダル', carrier: 'docomo', place: '', color: '#00838F' },
+  { name: 'NOON', carrier: '', place: '', color: '#AD1457' },
+  { name: '九情', carrier: 'au', place: '', color: '#1565C0' }
+];
+var PLACE_SHEET = '場所';
+var PLACE_HEAD = ['名前', '別名', '住所', '店舗稼働', '担当店舗', 'カッコなし', '外した日', '直した日時'];
+// シートがまだ無いときの場所（住所は「稼働費の場所から取り込む」で入る）
+var PLACE_SEED = [
+  { name: '下通', noParen: true }, { name: 'ゆめタウン大牟田', noParen: true },
+  { name: '健軍', shop: true }, { name: '松橋', shop: true }, { name: '光の森', shop: true }, { name: '大津', shop: true },
+  { name: '麻生田', shop: true }, { name: '八代', shop: true }, { name: '八代中央', shop: true }, { name: '玉名', shop: true },
+  { name: '玉名中央', shop: true }, { name: '熊本西', shop: true }, { name: '東バイパス', shop: true }, { name: '菊池', shop: true },
+  { name: '上熊本', shop: true, alias: ['上熊'] }, { name: '近見', shop: true }
+];
+var MASTER_CARRIERS = ['docomo', 'au', 'SoftBank'];
+var MASTER_PREFIX = /^(?:ＳＢ|SB|ソフトバンク|ドコモ|docomo|ａｕ|au)[\s　・･]*/i;
+
+// 場所の名前をくらべる形（空白・全角英数・頭の会社名をのぞく）。「sb 玉名」「SB玉名」「玉名」は同じ
+function placeKey_(v) {
+  var t = String(v || '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); }).replace(/[\s　]+/g, '');
+  for (var i = 0; i < 3 && MASTER_PREFIX.test(t); i++) { var t2 = t.replace(MASTER_PREFIX, ''); if (!t2 || t2 === t) break; t = t2; }
+  return t.toLowerCase();
+}
+function hasPrefix_(v) { return MASTER_PREFIX.test(String(v || '').replace(/[\s　]+/g, '')); }
+function stripPrefix_(v) {
+  var t = String(v || '').trim();
+  for (var i = 0; i < 3 && MASTER_PREFIX.test(t); i++) { var t2 = t.replace(MASTER_PREFIX, '').trim(); if (!t2 || t2 === t) break; t = t2; }
+  return t;
+}
+function masterSheet_(name, create) {
+  var ss = SpreadsheetApp.openById(SHEET_ID), sh = ss.getSheetByName(name);
+  if (!sh && create) {
+    sh = ss.insertSheet(name);
+    if (name === CLIENT_SHEET) { sh.appendRow(CLIENT_HEAD); CLIENT_SEED.forEach(function(c) { sh.appendRow(clientRow_(c)); }); }
+    else { sh.appendRow(PLACE_HEAD); PLACE_SEED.forEach(function(p) { sh.appendRow(placeRow_(p)); }); }
+    if (sh.setFrozenRows) sh.setFrozenRows(1);
+  }
+  return sh;
+}
+function clientRow_(c) { return [c.name, c.carrier || '', c.place || '', c.color || '', c.hidden || '', c.at || '']; }
+function placeRow_(p) { return [p.name, (p.alias || []).join('、'), p.address || '', p.shop ? '○' : '', p.store || '', p.noParen ? '○' : '', p.hidden || '', p.at || '']; }
+function dateText__(v, tz) { return Object.prototype.toString.call(v) === '[object Date]' ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : String(v || '').trim(); }
+function readMaster_() {
+  var tz = 'Asia/Tokyo', seed = false;
+  var cs = masterSheet_(CLIENT_SHEET, false), ps = masterSheet_(PLACE_SHEET, false);
+  var clients = cs && cs.getLastRow() >= 2
+    ? cs.getRange(2, 1, cs.getLastRow() - 1, CLIENT_HEAD.length).getValues().map(function(r) {
+        var col = String(r[3] || '').trim();
+        return { name: String(r[0] || '').trim(), carrier: MASTER_CARRIERS.indexOf(String(r[1]).trim()) >= 0 ? String(r[1]).trim() : '',
+          place: String(r[2] || '').trim(), color: /^#[0-9a-fA-F]{6}$/.test(col) ? col : '', hidden: dateText__(r[4], tz) };
+      }).filter(function(c) { return c.name; })
+    : (seed = true, CLIENT_SEED.map(function(c) { return { name: c.name, carrier: c.carrier, place: c.place, color: c.color, hidden: '' }; }));
+  var places = ps && ps.getLastRow() >= 2
+    ? ps.getRange(2, 1, ps.getLastRow() - 1, PLACE_HEAD.length).getValues().map(function(r) {
+        return { name: String(r[0] || '').trim(), alias: String(r[1] || '').split(/[、,，]/).map(function(a) { return a.trim(); }).filter(String),
+          address: String(r[2] || '').trim(), shop: String(r[3] || '').trim() !== '', store: String(r[4] || '').trim(),
+          noParen: String(r[5] || '').trim() !== '', hidden: dateText__(r[6], tz) };
+      }).filter(function(p) { return p.name; })
+    : (seed = true, PLACE_SEED.map(function(p) { return { name: p.name, alias: p.alias || [], address: '', shop: !!p.shop, store: '', noParen: !!p.noParen, hidden: '' }; }));
+  return { clients: clients, places: places, seed: seed };
+}
+// みんなの状況から直す。kind: client|place、op: add|update|hide|show、key: 直す前の名前
+function masterText_(v, n) { return String(v || '').replace(/[\r\n\t]/g, ' ').trim().replace(/^[=+\-@]+/, '').slice(0, n); }
+function masterSave_(p) {
+  if (!teamOk_(p.token)) return { ok: false, expired: true, error: '合言葉を確かめられませんでした。みんなの状況に入り直してください' };
+  var kind = p.kind === 'place' ? 'place' : p.kind === 'client' ? 'client' : '';
+  var op = String(p.op || ''), x = p.item || {};
+  if (!kind || ['add', 'update', 'hide', 'show'].indexOf(op) < 0) return { ok: false, error: 'できない操作です' };
+  var name = masterText_(x.name, 20).replace(/[,，、]/g, '');
+  if (!name) return { ok: false, error: '名前を入れてください' };
+  var sh = masterSheet_(kind === 'client' ? CLIENT_SHEET : PLACE_SHEET, true), head = kind === 'client' ? CLIENT_HEAD : PLACE_HEAD;
+  var m = readMaster_(), list = kind === 'client' ? m.clients : m.places;
+  var key = op === 'add' ? name : masterText_(p.key || x.name, 20);
+  var idx = -1, dup = -1;
+  list.forEach(function(it, i) { if (it.name === key) idx = i; if (it.name === name) dup = i; });
+  var now = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm');
+  var clean;
+  if (kind === 'client') {
+    var col = String(x.color || '').trim();
+    if (col && !/^#[0-9a-fA-F]{6}$/.test(col)) return { ok: false, error: '色の形がちがいます（#から始まる6けた）' };
+    clean = { name: name, carrier: MASTER_CARRIERS.indexOf(x.carrier) >= 0 ? x.carrier : '', place: masterText_(x.place, 30), color: col, hidden: '', at: now };
+  } else {
+    var alias = (Array.isArray(x.alias) ? x.alias : String(x.alias || '').split(/[、,，]/)).map(function(a) { return masterText_(a, 20); }).filter(String).slice(0, 10);
+    clean = { name: name, alias: alias, address: masterText_(x.address, 100), shop: !!x.shop, store: masterText_(x.store, 20), noParen: !!x.noParen, hidden: '', at: now };
+  }
+  if (op === 'add') {
+    if (dup >= 0) return { ok: false, error: '「' + name + '」はもうあります' + (list[dup].hidden ? '（外したものの中）。「戻す」を押してください' : '') };
+    list.push(clean); idx = list.length - 1;
+  } else {
+    if (idx < 0) return { ok: false, error: '「' + key + '」が見つかりません。開き直してください' };
+    if (op === 'update') {
+      if (dup >= 0 && dup !== idx) return { ok: false, error: '「' + name + '」はもうあります' };
+      clean.hidden = list[idx].hidden; list[idx] = clean;
+    }
+    if (op === 'hide') { list[idx].hidden = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd'); list[idx].at = now; }
+    if (op === 'show') { list[idx].hidden = ''; list[idx].at = now; }
+  }
+  var rows = list.map(function(it) { return kind === 'client' ? clientRow_(it) : placeRow_(it); });
+  // シートの中身を一覧で書き直す（見出しの下）。行が減ることはない（外すのは印だけ）
+  sh.getRange(2, 1, rows.length, head.length).setValues(rows);
+  return rosterOk_(false);
+}
+// 稼働費の「稼働場所」（社員のブック・山口さんのブック）とパートナーの「場所」から、場所と住所を取り込む。
+// 「SB光の森」→ 名前「光の森」・別名「SB光の森」・店舗稼働。もうある場所は、住所が空のときだけ住所を入れ、別名を足す
+var MASTER_IMPORT = [
+  { id: '1shpJvauT5rwKCaWH9RQBNZt3DzAA11yD5jNFUg2c6d4', sheet: '稼働場所', name: 0, addr: 1 },   // 稼働費計算_GAS版
+  { id: '1RRLf47jjFvL1MdFvkt43GdSsw_r7NLQOqOQzRCEwmpA', sheet: '稼働場所', name: 0, addr: 1 },   // 山口_稼働費計算_GAS版
+  { id: '19TTixFCWjVUR9S4XvsMjdbQt_U3v4MlCdvVpgTMsK_U', sheet: '場所', name: 2, addr: 3, del: 5 }   // パートナー_交通費（場所名・住所・削除）
+];
+function masterImport_(p) {
+  if (!teamOk_(p.token)) return { ok: false, expired: true, error: '合言葉を確かめられませんでした。みんなの状況に入り直してください' };
+  var m = readMaster_(), places = m.places, byKey = {}, added = 0, filled = 0, read = 0, skipped = [];
+  places.forEach(function(pl, i) { byKey[placeKey_(pl.name)] = i; pl.alias.forEach(function(a) { if (byKey[placeKey_(a)] === undefined) byKey[placeKey_(a)] = i; }); });
+  MASTER_IMPORT.forEach(function(src) {
+    var sh;
+    try { sh = SpreadsheetApp.openById(src.id).getSheetByName(src.sheet); } catch (e) { skipped.push(src.sheet + '（開けません）'); return; }
+    if (!sh || sh.getLastRow() < 2) return;
+    var w = Math.max(src.name, src.addr, src.del || 0) + 1;
+    sh.getRange(2, 1, sh.getLastRow() - 1, w).getValues().forEach(function(r) {
+      var raw = String(r[src.name] || '').trim(), addr = String(r[src.addr] || '').trim().replace(/^〒?\d{3}-\d{4}\s*/, '');
+      if (!raw || !addr || /自宅/.test(raw) || (src.del !== undefined && String(r[src.del] || '').trim())) return;
+      read++;
+      var k = placeKey_(raw), i = byKey[k];
+      if (i === undefined) {
+        var nm = stripPrefix_(raw) || raw;
+        places.push({ name: nm, alias: nm !== raw ? [raw] : [], address: addr, shop: hasPrefix_(raw), store: '', noParen: false, hidden: '' });
+        byKey[k] = places.length - 1; added++;
+      } else {
+        var pl = places[i];
+        if (!pl.address) { pl.address = addr; filled++; }
+        if (raw !== pl.name && pl.alias.indexOf(raw) < 0 && pl.alias.length < 10) pl.alias.push(raw);
+      }
+    });
+  });
+  var sh = masterSheet_(PLACE_SHEET, true);
+  if (places.length) sh.getRange(2, 1, places.length, PLACE_HEAD.length).setValues(places.map(placeRow_));
+  var out = rosterOk_(false);
+  out.imported = { read: read, added: added, filled: filled, skipped: skipped };
+  return out;
+}
+
 function rosterOk_(already) {
   try { CacheService.getScriptCache().remove(ROSTER_CACHE); } catch (e) {}
   var out = roster_();
@@ -963,7 +1115,7 @@ function doGet(e) {
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
-  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true, remind: true, yearReview: true, logError: true, roster: true, contacts: true });
+  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true, remind: true, yearReview: true, logError: true, roster: true, contacts: true, master: true });
 }
 
 function doPost(e) {
@@ -1004,6 +1156,8 @@ function handlePost_(e) {
   if (p.action === 'teamPass') return teamPass_(p);
   if (p.action === 'rosterSave') return rosterSave_(p);
   if (p.action === 'contactSave') return contactSave_(p);
+  if (p.action === 'masterSave') return masterSave_(p);
+  if (p.action === 'masterImport') return masterImport_(p);
   if (p.action === 'contacts') return contacts_(p);
   if (p.action === 'gainResend') return resendGain_(p);
   var out = p.action === 'gain' ? buildGain_(p, requestId) : buildReport_(p, requestId);
