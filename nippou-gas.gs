@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-19';
+var CODE_VERSION = '2026-11-20';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -473,7 +473,8 @@ function errors_(p) {
 // その人のいちばん新しい日報（きょうかきのうの分）と、ここ2週間の流れを Gemini に読ませて、本人への
 //   cheer … ほめる・ねぎらうひとこと
 //   grow  … のびたところ（「できるようになったね」。前の週より本当に伸びたときだけ）
-//   hint  … 具体的なアドバイス（数字・メモを根拠に、何をどうするか。食い違いや考え違いは指摘してよい）
+//   hint  … 総合的なアドバイス（きょうの所感を過去の所感と照らし合わせて、何をどうするか。食い違いや考え違いは指摘してよい）
+// アプローチ・着座の件数は材料にしない（所感の文章を中心に見る）
 // を作る。伸びたかどうかの数字は GAS で計算してから渡す（AIに計算させない）。
 // 日報を送るときには呼ばない（送信を遅くしないため）。ポータルのホームを開いたときに1回だけ作り、
 // 「ひとこと」シートに残して、2回目からはそれを返す。
@@ -481,7 +482,7 @@ function errors_(p) {
 var CHEER_SHEET = 'ひとこと';
 var CHEER_HEAD = ['作った日時', '名前', '日報のキー', '日付', 'ひとこと', 'のびた', 'ヒント'];
 var CHEER_MAX_LEN = 40;
-var HINT_MAX_LEN = 80;   // アドバイスは具体的に書くので、少し長くてよい
+var HINT_MAX_LEN = 130;   // アドバイスは過去の日報と照らし合わせて書くので、長めでよい
 var CHEER_MODELS = ['gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3.5-flash'];   // 経費精算の領収書読み取りと同じ順
 
 function cheerSheet_() {
@@ -536,11 +537,10 @@ function twoWeeks_(reports, today) {
   });
   return w;
 }
+// アプローチ・着座の件数は AI に渡さない（材料にしない）
 function weekLine_(w) {
   if (!w.n) return '日報なし';
-  var rate = w.ap ? Math.round(w.gain / w.ap * 1000) / 10 : 0;
-  var parts = Object.keys(w.aps).map(function(l) { return l + w.aps[l]; }).join('・');
-  return '日報' + w.n + '回　アプローチ' + w.ap + '件' + (parts ? '（' + parts + '）' : '') + '　獲得' + w.gain + '件　成約率' + rate + '%';
+  return '日報' + w.n + '回　獲得' + w.gain + '件';
 }
 
 function cheer_(name) {
@@ -582,29 +582,38 @@ function findCheer_(sh, key) {
 
 // AIへのお願い（ここを書き換えると、しゃべり方が変わる）
 var CHEER_RULES =
-  'あなたは営業チームのマスコット。メンバーが送った日報と、ここ2週間の数字を見て、その本人にかける言葉を作る。\n' +
-  'JSON で cheer・grow・hint の3つを返す。cheer と grow は30文字くらいまで、hint は60文字くらいまでの1文。\n' +
-  '- cheer：きょう（いちばん新しい日報）の中身を1つ具体的に拾って、ほめる・ねぎらう。数字が少ない日は、動いたことやがんばりをねぎらう。\n' +
-  '- grow：「できるようになったね」という振り返り。【直近7日】と【その前の7日】を比べて、本当に伸びたところ（件数・成約率・アプローチの種類など）だけを書く。伸びていなければ空文字。\n' +
-  '- hint：具体的なアドバイスを1つ。日報の数字・本人のメモ・ここ2週間の流れから、いちばん効きそうな改善点を1つ選び、「何を・どうするか」まで書く（ふわっとした励ましにしない）。\n' +
-  '  - 根拠になる数字かメモの言葉を1つ入れる（例：アプローチ30件で獲得0件、着座が前の週より減った、目標まで1日あたり2件）。\n' +
-  '  - メモと数字が食い違うとき（「粘れた」と書いてあるのに着座0件など）や、やり方・考え方がずれていると思うときは、はっきり指摘してよい。「〜は ちがうかも」「〜より 〜のほうが いい」のように否定してよい。\n' +
-  '  - ただし、人を責める・ばかにする・怒る言い方はしない。次にやることが分かる言い方にする。\n' +
-  '  - 数字がいい日も、さらに伸ばす一手を書く。ほんとうに言うことがない日だけ空文字。\n' +
+  'あなたは営業チームのマスコット。メンバーが送った日報（とくに本人が書いた所感の文章）を、その人の過去の日報と照らし合わせて読み、本人にかける言葉を作る。\n' +
+  'アプローチ・着座の件数は材料にしない。所感の中身（やったこと・うまくいったこと・困ったこと・次にやると書いたこと）を中心に考える。\n' +
+  'JSON で cheer・grow・hint の3つを返す。どれも1行。\n' +
+  '- cheer：きょうの所感から1つ具体的に拾って、ほめる・ねぎらう（30文字くらいまで）。\n' +
+  '- grow：過去の所感とくらべて、できるようになったこと・変わったことを書く（30文字くらいまで）。前に「次は〜する」と書いていて、きょうそれができていれば、それを拾う。なければ空文字。\n' +
+  '- hint：きょうの所感と過去の所感を照らし合わせた、総合的なアドバイスを1つ（100文字くらいまで、1〜2文）。\n' +
+  '  - 同じ悩み・同じ失敗がくり返されていないか、前に「次は〜する」と書いたことをやれているか、書いていることと結果が食い違っていないか、を見る。\n' +
+  '  - 見つけたことを根拠に（いつの日報に何と書いてあったか分かるように）、次に何をどうするかまで具体的に書く。ふわっとした励ましにしない。\n' +
+  '  - 食い違いや考え違いは、はっきり指摘・否定してよい（例：前は〜と書いてたけど、きょうも〜。〜したほうがいい）。\n' +
+  '  - 人を責める・ばかにする・怒る言い方はしない。\n' +
+  '  - 所感が短くて材料がないときは、獲得件数や目標までのペースから1つ書く。ほんとうに言うことがない日だけ空文字。\n' +
   '共通のルール：\n' +
-  '- ひらがな多めの、やさしい話し言葉（です・ます は使わない）。hint は読みやすさ優先で漢字を使ってよい。\n' +
+  '- やさしい話し言葉（です・ます は使わない）。cheer と grow はひらがな多め、hint は読みやすさ優先で漢字を使ってよい。\n' +
   '- 数字は下に書いてあるものだけを使う。計算し直したり、作ったりしない。\n' +
-  '- ほかの人の名前や数字は出さない。\n' +
+  '- 日報に書いてないことを想像で足さない。\n' +
+  '- ほかのメンバーの名前や数字は出さない。\n' +
   '- 絵文字・顔文字・かぎかっこ・記号の飾りは使わない。';
 
 var CHEER_SCHEMA = { type: 'OBJECT', properties: { cheer: { type: 'STRING' }, grow: { type: 'STRING' }, hint: { type: 'STRING' } }, required: ['cheer', 'grow', 'hint'] };
 
 function cheerPrompt_(name, reports, today) {
   var r = reports[0], lines = [];
+  var note = function(x, n) { var t = String(x.note || '').replace(/\s+/g, ' ').trim(); return t ? t.slice(0, n) : '（なし）'; };
   lines.push('名前：' + name);
-  lines.push('【いちばん新しい日報】' + r.date + '　場所：' + (r.place || '-') + '　キャリア：' + (r.carrier || '-'));
-  lines.push('アプローチ：' + r.ap + '件' + (r.apText ? '（' + r.apText + '）' : '') + '　獲得：' + r.gain + '件' + (r.gainText ? '（' + r.gainText + '）' : ''));
-  if (r.note) lines.push('本人のメモ：' + r.note.slice(0, 200));
+  lines.push('【きょうの日報】' + r.date + '　場所：' + (r.place || '-') + '　キャリア：' + (r.carrier || '-') + '　獲得：' + r.gain + '件' + (r.gainText ? '（' + r.gainText + '）' : ''));
+  lines.push('所感：' + note(r, 500));
+  if (reports.length > 1) {
+    lines.push('【これまでの日報（新しい順）】');
+    reports.slice(1, 8).forEach(function(x) {
+      lines.push('- ' + x.date + '　' + (x.place || '-') + '　獲得' + x.gain + '件　所感：' + note(x, 200));
+    });
+  }
   var w = twoWeeks_(reports, today || r.date);
   lines.push('【直近7日】' + weekLine_(w[0]));
   lines.push('【その前の7日】' + weekLine_(w[1]));
@@ -615,12 +624,6 @@ function cheerPrompt_(name, reports, today) {
     // ペースは GAS で計算して渡す（AI に計算させない）
     if (rest > 0) lines.push('【目標までのペース】あと' + rest + '件。' + (left > 0 ? '残り' + left + '日で 1日あたり' + (Math.round(rest / left * 10) / 10) + '件' : 'きょうが月末'));
     else lines.push('【目標までのペース】目標たっせい');
-  }
-  if (reports.length > 1) {
-    lines.push('【この前の日報（新しい順）】');
-    reports.slice(1, 6).forEach(function(x) {
-      lines.push('- ' + x.date + ' ' + (x.place || '-') + ' アプローチ' + x.ap + '件 獲得' + x.gain + '件');
-    });
   }
   return CHEER_RULES + '\n\n' + lines.join('\n');
 }
