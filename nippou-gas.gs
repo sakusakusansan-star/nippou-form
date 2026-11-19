@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-16';
+var CODE_VERSION = '2026-11-19';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -473,7 +473,7 @@ function errors_(p) {
 // その人のいちばん新しい日報（きょうかきのうの分）と、ここ2週間の流れを Gemini に読ませて、本人への
 //   cheer … ほめる・ねぎらうひとこと
 //   grow  … のびたところ（「できるようになったね」。前の週より本当に伸びたときだけ）
-//   hint  … やわらかいヒント（提案の形。命令しない。いらない日は空）
+//   hint  … 具体的なアドバイス（数字・メモを根拠に、何をどうするか。食い違いや考え違いは指摘してよい）
 // を作る。伸びたかどうかの数字は GAS で計算してから渡す（AIに計算させない）。
 // 日報を送るときには呼ばない（送信を遅くしないため）。ポータルのホームを開いたときに1回だけ作り、
 // 「ひとこと」シートに残して、2回目からはそれを返す。
@@ -481,6 +481,7 @@ function errors_(p) {
 var CHEER_SHEET = 'ひとこと';
 var CHEER_HEAD = ['作った日時', '名前', '日報のキー', '日付', 'ひとこと', 'のびた', 'ヒント'];
 var CHEER_MAX_LEN = 40;
+var HINT_MAX_LEN = 80;   // アドバイスは具体的に書くので、少し長くてよい
 var CHEER_MODELS = ['gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3.5-flash'];   // 経費精算の領収書読み取りと同じ順
 
 function cheerSheet_() {
@@ -582,12 +583,16 @@ function findCheer_(sh, key) {
 // AIへのお願い（ここを書き換えると、しゃべり方が変わる）
 var CHEER_RULES =
   'あなたは営業チームのマスコット。メンバーが送った日報と、ここ2週間の数字を見て、その本人にかける言葉を作る。\n' +
-  'JSON で cheer・grow・hint の3つを返す。どれも30文字くらいまでの1文。\n' +
+  'JSON で cheer・grow・hint の3つを返す。cheer と grow は30文字くらいまで、hint は60文字くらいまでの1文。\n' +
   '- cheer：きょう（いちばん新しい日報）の中身を1つ具体的に拾って、ほめる・ねぎらう。数字が少ない日は、動いたことやがんばりをねぎらう。\n' +
   '- grow：「できるようになったね」という振り返り。【直近7日】と【その前の7日】を比べて、本当に伸びたところ（件数・成約率・アプローチの種類など）だけを書く。伸びていなければ空文字。\n' +
-  '- hint：やわらかいヒントを1つ。「〜すると もっと伸びそう」「〜してみるのも いいかも」のような提案の形。命令・説教・責める言い方はしない。数字がいい日や、言うことがない日は空文字。\n' +
+  '- hint：具体的なアドバイスを1つ。日報の数字・本人のメモ・ここ2週間の流れから、いちばん効きそうな改善点を1つ選び、「何を・どうするか」まで書く（ふわっとした励ましにしない）。\n' +
+  '  - 根拠になる数字かメモの言葉を1つ入れる（例：アプローチ30件で獲得0件、着座が前の週より減った、目標まで1日あたり2件）。\n' +
+  '  - メモと数字が食い違うとき（「粘れた」と書いてあるのに着座0件など）や、やり方・考え方がずれていると思うときは、はっきり指摘してよい。「〜は ちがうかも」「〜より 〜のほうが いい」のように否定してよい。\n' +
+  '  - ただし、人を責める・ばかにする・怒る言い方はしない。次にやることが分かる言い方にする。\n' +
+  '  - 数字がいい日も、さらに伸ばす一手を書く。ほんとうに言うことがない日だけ空文字。\n' +
   '共通のルール：\n' +
-  '- ひらがな多めの、やさしくのんびりした話し言葉（です・ます は使わない）。\n' +
+  '- ひらがな多めの、やさしい話し言葉（です・ます は使わない）。hint は読みやすさ優先で漢字を使ってよい。\n' +
   '- 数字は下に書いてあるものだけを使う。計算し直したり、作ったりしない。\n' +
   '- ほかの人の名前や数字は出さない。\n' +
   '- 絵文字・顔文字・かぎかっこ・記号の飾りは使わない。';
@@ -605,7 +610,11 @@ function cheerPrompt_(name, reports, today) {
   lines.push('【その前の7日】' + weekLine_(w[1]));
   if (r.target) {
     var d = new Date(today + 'T00:00:00+09:00'), last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-    lines.push('【今月のMNP】' + r.cum + '件 / 目標 ' + r.target + '件（月末まで あと' + (last - d.getDate()) + '日）');
+    var left = last - d.getDate(), rest = Math.max(0, r.target - r.cum);
+    lines.push('【今月のMNP】' + r.cum + '件 / 目標 ' + r.target + '件（月末まで あと' + left + '日）');
+    // ペースは GAS で計算して渡す（AI に計算させない）
+    if (rest > 0) lines.push('【目標までのペース】あと' + rest + '件。' + (left > 0 ? '残り' + left + '日で 1日あたり' + (Math.round(rest / left * 10) / 10) + '件' : 'きょうが月末'));
+    else lines.push('【目標までのペース】目標たっせい');
   }
   if (reports.length > 1) {
     lines.push('【この前の日報（新しい順）】');
@@ -637,7 +646,7 @@ function makeCheer_(name, reports, today) {
       var raw = parts.map(function(p) { return p.text || ''; }).join('');
       var obj = null;
       try { obj = JSON.parse(raw); } catch (e) { obj = { cheer: raw }; }   // JSON で返らなかったら、全体をひとことに
-      var out = { text: cleanCheer_(obj.cheer), grow: cleanCheer_(obj.grow), hint: cleanCheer_(obj.hint) };
+      var out = { text: cleanCheer_(obj.cheer), grow: cleanCheer_(obj.grow), hint: cleanCheer_(obj.hint, HINT_MAX_LEN) };
       if (out.text) return out;
     } catch (e) {
       Logger.log('Gemini ' + model + ' ' + e.message);
@@ -647,13 +656,14 @@ function makeCheer_(name, reports, today) {
 }
 
 // 1行目だけ・かぎかっこや引用符・絵文字をのぞいて、長すぎたら切る
-function cleanCheer_(s) {
+function cleanCheer_(s, max) {
+  max = max || CHEER_MAX_LEN;
   var t = String(s || '').split(/\r?\n/).map(function(x) { return x.trim(); }).filter(function(x) { return x; })[0] || '';
   t = t.replace(/^[「『"'“”]+|[」』"'“”]+$/g, '')
        .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '')      // 絵文字（サロゲートペア）
        .replace(/[☀-➿️]/g, '')               // 記号の絵文字
        .trim();
-  if (t.length > CHEER_MAX_LEN) t = t.slice(0, CHEER_MAX_LEN - 1) + '…';
+  if (t.length > max) t = t.slice(0, max - 1) + '…';
   return t;
 }
 
