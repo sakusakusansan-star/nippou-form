@@ -107,7 +107,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-22');
+assert.strictEqual(r.version, '2026-11-23');
 assert.strictEqual(r.roster, true);
 assert.ok(r.remind && r.yearReview && r.logError, '新しい読み書きがある');
 assert.strictEqual(r.teamPass, true);
@@ -345,6 +345,12 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   assert.strictEqual(get({}).cheer, true);
   // 長すぎるひとことは切る・内訳の読み取り
   assert.strictEqual(cleanCheer_('あ'.repeat(60)).length, 40);
+  // アドバイスは文の終わりで切る（途中で「…」にしない）
+  var longHint = 'い'.repeat(100) + '。' + 'う'.repeat(150) + '。';
+  assert.strictEqual(cleanCheer_(longHint, HINT_MAX_LEN), 'い'.repeat(100) + '。');
+  assert.strictEqual(cleanCheer_('え'.repeat(150), HINT_MAX_LEN), 'え'.repeat(150));
+  assert.strictEqual(cleanCheer_('お'.repeat(250), HINT_MAX_LEN), 'お'.repeat(199) + '…');
+  assert.strictEqual(cleanCheer_('か。' + 'き'.repeat(250), HINT_MAX_LEN), 'か。' + 'き'.repeat(197) + '…');
   assert.deepStrictEqual(JSON.parse(JSON.stringify(parseBreakdown_('キャッチ6 / 店内2 / キャッチ1'))), { キャッチ: 7, 店内: 2 });
 }
 // ─── 月末の締め：まだの人への声かけ（通行証・10分に1回・メンションは鳴らさない） ───
