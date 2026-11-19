@@ -107,7 +107,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-16');
+assert.strictEqual(r.version, '2026-11-19');
 assert.strictEqual(r.roster, true);
 assert.ok(r.remind && r.yearReview && r.logError, '新しい読み書きがある');
 assert.strictEqual(r.teamPass, true);
@@ -288,6 +288,9 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   assert.ok(prompt.includes('【直近7日】日報2回　アプローチ47件（キャッチ42・着座5）　獲得2件　成約率4.3%'), prompt);
   assert.ok(prompt.includes('【その前の7日】日報2回　アプローチ40件（キャッチ40）　獲得0件　成約率0%'), prompt);
   assert.ok(prompt.includes('【今月のMNP】3件 / 目標 5件') && prompt.includes('雨だったけど粘った') && prompt.includes('近見 アプローチ12件'), prompt);
+  // 目標までのペースは GAS で計算して渡す。アドバイスは具体的に・食い違いは指摘してよい
+  assert.ok(/【目標までのペース】あと2件。(残り\d+日で 1日あたり[\d.]+件|きょうが月末)/.test(prompt), prompt);
+  assert.ok(prompt.includes('具体的なアドバイス') && prompt.includes('はっきり指摘してよい') && prompt.includes('人を責める'), 'アドバイスのルール');
   assert.ok(!prompt.includes('鈴木') && !prompt.includes('毛利'), 'ほかの人の日報は渡さない');
   assert.ok(gemini[0].url.includes('gemini-2.5-flash'));
   // 2回目は残したものを返す（AIは呼ばない）
