@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-23';
+var CODE_VERSION = '2026-11-24';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -409,7 +409,7 @@ function gemini_(prompt, schema, maxTokens) {
 // ひとことと同じ整え方（長さだけ変えられる）
 function cleanText_(s, max) {
   var t = String(s || '').split(/\r?\n/).map(function(x) { return x.trim(); }).filter(function(x) { return x; }).join('');
-  t = t.replace(/^[「『"'“”]+|[」』"'“”]+$/g, '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').replace(/[☀-➿️]/g, '').trim();
+  t = unwrapQuotes_(t).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').replace(/[☀-➿️]/g, '').trim();
   if (t.length > max) t = t.slice(0, max - 1) + '…';
   return t;
 }
@@ -481,7 +481,8 @@ function errors_(p) {
 // 鍵はスクリプト プロパティ GEMINI_API_KEY（経費精算と同じ値）。無いとき・失敗したときは text: ''（ぼのぼのは数字のひとことだけ）。
 var CHEER_SHEET = 'ひとこと';
 var CHEER_HEAD = ['作った日時', '名前', '日報のキー', '日付', 'ひとこと', 'のびた', 'ヒント'];
-var CHEER_MAX_LEN = 40;
+var CHEER_MAX_LEN = 60;   // ひとこと（AIには40文字以内と頼み、これは念のための上限）
+var GROW_MAX_LEN = 80;    // のびた（AIには50文字以内と頼む）
 var HINT_MAX_LEN = 200;   // アドバイスは過去の日報と照らし合わせて書くので、長めでよい（AIには120文字までと頼み、これは念のための上限）
 var CHEER_MODELS = ['gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3.5-flash'];   // 経費精算の領収書読み取りと同じ順
 
@@ -585,8 +586,8 @@ var CHEER_RULES =
   'あなたは営業チームのマスコット。メンバーが送った日報（とくに本人が書いた所感の文章）を、その人の過去の日報と照らし合わせて読み、本人にかける言葉を作る。\n' +
   'アプローチ・着座の件数は材料にしない。所感の中身（やったこと・うまくいったこと・困ったこと・次にやると書いたこと）を中心に考える。\n' +
   'JSON で cheer・grow・hint の3つを返す。どれも1行。\n' +
-  '- cheer：きょうの所感から1つ具体的に拾って、ほめる・ねぎらう（30文字くらいまで）。\n' +
-  '- grow：過去の所感とくらべて、できるようになったこと・変わったことを書く（30文字くらいまで）。前に「次は〜する」と書いていて、きょうそれができていれば、それを拾う。なければ空文字。\n' +
+  '- cheer：きょうの所感から1つ具体的に拾って、ほめる・ねぎらう（40文字以内。文の終わりまで書き切る）。\n' +
+  '- grow：過去の所感とくらべて、できるようになったこと・変わったことを書く（50文字以内。文の終わりまで書き切る）。前に「次は〜する」と書いていて、きょうそれができていれば、それを拾う。なければ空文字。\n' +
   '- hint：きょうの所感と過去の所感を照らし合わせた、総合的なアドバイスを1つ（120文字以内、1〜2文。途中で切れないよう、文の終わりまで書き切る）。\n' +
   '  - 同じ悩み・同じ失敗がくり返されていないか、前に「次は〜する」と書いたことをやれているか、書いていることと結果が食い違っていないか、を見る。\n' +
   '  - 見つけたことを根拠に（いつの日報に何と書いてあったか分かるように）、次に何をどうするかまで具体的に書く。ふわっとした励ましにしない。\n' +
@@ -649,7 +650,7 @@ function makeCheer_(name, reports, today) {
       var raw = parts.map(function(p) { return p.text || ''; }).join('');
       var obj = null;
       try { obj = JSON.parse(raw); } catch (e) { obj = { cheer: raw }; }   // JSON で返らなかったら、全体をひとことに
-      var out = { text: cleanCheer_(obj.cheer), grow: cleanCheer_(obj.grow), hint: cleanCheer_(obj.hint, HINT_MAX_LEN) };
+      var out = { text: cleanCheer_(obj.cheer), grow: cleanCheer_(obj.grow, GROW_MAX_LEN), hint: cleanCheer_(obj.hint, HINT_MAX_LEN) };
       if (out.text) return out;
     } catch (e) {
       Logger.log('Gemini ' + model + ' ' + e.message);
@@ -662,11 +663,20 @@ function makeCheer_(name, reports, today) {
 function cleanCheer_(s, max) {
   max = max || CHEER_MAX_LEN;
   var t = String(s || '').split(/\r?\n/).map(function(x) { return x.trim(); }).filter(function(x) { return x; })[0] || '';
-  t = t.replace(/^[「『"'“”]+|[」』"'“”]+$/g, '')
+  t = unwrapQuotes_(t)
        .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '')      // 絵文字（サロゲートペア）
        .replace(/[☀-➿️]/g, '')               // 記号の絵文字
        .trim();
   if (t.length > max) t = cutAtSentence_(t, max);
+  return t;
+}
+// 全体がかぎかっこ・引用符でくくられているときだけ外す（「…」と11/22に書いて…の頭の「を消さない）
+function unwrapQuotes_(t) {
+  var pairs = [['「', '」'], ['『', '』'], ['"', '"'], ["'", "'"], ['“', '”']];
+  for (var i = 0; i < pairs.length; i++) {
+    var o = pairs[i][0], c = pairs[i][1];
+    if (t.length >= 2 && t.charAt(0) === o && t.charAt(t.length - 1) === c && t.slice(1, -1).indexOf(o) < 0 && t.slice(1, -1).indexOf(c) < 0) return t.slice(1, -1).trim();
+  }
   return t;
 }
 // 長すぎるときは、上限の中の最後の「。」「！」で切る（文の途中で「…」にしない）。文の区切りが前のほうにしかなければ「…」
