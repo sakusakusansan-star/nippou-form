@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-24';
+var CODE_VERSION = '2026-11-25';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -473,16 +473,25 @@ function errors_(p) {
 // その人のいちばん新しい日報（きょうかきのうの分）と、ここ2週間の流れを Gemini に読ませて、本人への
 //   cheer … ほめる・ねぎらうひとこと
 //   grow  … のびたところ（「できるようになったね」。前の週より本当に伸びたときだけ）
-//   hint  … 総合的なアドバイス（きょうの所感を過去の所感と照らし合わせて、何をどうするか。食い違いや考え違いは指摘してよい）
+//   notice … 気づいたこと（同じ失敗のくり返し・書いていることと結果の食い違いの指摘）
+//   undone … やれてないこと（前に「次は〜する」と書いたのに、きょうの所感に出てこないこと）
+//   next   … 次はこれ（あしたやることを1つ。言い方の例つき）
+//   todo   … きょうの所感に本人が書いた「次やること」（シートに残し、次の日報で できた／まだ を見る）
+//   （前は hint 1つにまとめていた。古い画面のために hint にも3つをつなげて返す）
 // アプローチ・着座の件数は材料にしない（所感の文章を中心に見る）
 // を作る。伸びたかどうかの数字は GAS で計算してから渡す（AIに計算させない）。
 // 日報を送るときには呼ばない（送信を遅くしないため）。ポータルのホームを開いたときに1回だけ作り、
 // 「ひとこと」シートに残して、2回目からはそれを返す。
 // 鍵はスクリプト プロパティ GEMINI_API_KEY（経費精算と同じ値）。無いとき・失敗したときは text: ''（ぼのぼのは数字のひとことだけ）。
 var CHEER_SHEET = 'ひとこと';
-var CHEER_HEAD = ['作った日時', '名前', '日報のキー', '日付', 'ひとこと', 'のびた', 'ヒント'];
+var CHEER_HEAD = ['作った日時', '名前', '日報のキー', '日付', 'ひとこと', 'のびた', 'ヒント', '気づいたこと', 'やれてないこと', '次はこれ', '次やること', '前回の次やること', '前回の判定'];
+var CHEER_COLS = CHEER_HEAD.length;
 var CHEER_MAX_LEN = 60;   // ひとこと（AIには40文字以内と頼み、これは念のための上限）
 var GROW_MAX_LEN = 80;    // のびた（AIには50文字以内と頼む）
+var NOTICE_MAX_LEN = 110;  // 気づいたこと・やれてないこと（AIには70文字以内と頼む）
+var NEXT_MAX_LEN = 140;    // 次はこれ（AIには90文字以内と頼む）
+var TODO_MAX_LEN = 50;     // 次やること（AIには30文字以内と頼む）
+var PREV_RESULTS = ['できた', 'まだ', 'わからない'];
 var HINT_MAX_LEN = 200;   // アドバイスは過去の日報と照らし合わせて書くので、長めでよい（AIには120文字までと頼み、これは念のための上限）
 var CHEER_MODELS = ['gemini-2.5-flash', 'gemini-flash-lite-latest', 'gemini-3.5-flash'];   // 経費精算の領収書読み取りと同じ順
 
@@ -490,7 +499,7 @@ function cheerSheet_() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
   var sh = ss.getSheetByName(CHEER_SHEET);
   if (!sh) { sh = ss.insertSheet(CHEER_SHEET); sh.appendRow(CHEER_HEAD); sh.setFrozenRows(1); }
-  else if (!String(sh.getRange(1, 6).getValue() || '').trim()) sh.getRange(1, 6, 1, 2).setValues([['のびた', 'ヒント']]);   // 後から足した列
+  else if (!String(sh.getRange(1, 8).getValue() || '').trim()) sh.getRange(1, 6, 1, CHEER_COLS - 5).setValues([CHEER_HEAD.slice(5)]);   // 後から足した列
   return sh;
 }
 
@@ -556,7 +565,7 @@ function cheer_(name) {
 
   var sh = cheerSheet_();
   var found = findCheer_(sh, latest.key);
-  if (found) return { ok: true, text: found.text, grow: found.grow, hint: found.hint, date: latest.date };
+  if (found) return cheerOut_(found, latest.date);
 
   // 同じ日報を何台かで同時に開いても、AIを呼ぶのは1回だけ（作っている間は印を置く）。
   // 日報の送信と同じロックは使わない（AIが遅いときに、日報の送信を待たせないため）
@@ -564,19 +573,36 @@ function cheer_(name) {
   if (cache.get(failKey) || cache.get(busyKey)) return { ok: true, text: '' };   // 失敗したばかり・作っている途中
   try { cache.put(busyKey, '1', 60); } catch (e0) {}
   var c = null;
-  try { c = makeCheer_(name, reports, today); } catch (e) { Logger.log('ひとことを作れませんでした: ' + e.message); }
+  try { c = makeCheer_(name, reports, today, todosOf_(sh, reports)); } catch (e) { Logger.log('ひとことを作れませんでした: ' + e.message); }
   try { cache.remove(busyKey); } catch (e1) {}
   if (!c || !c.text) { try { cache.put(failKey, '1', 600); } catch (e2) {} return { ok: true, text: '' }; }
-  sh.appendRow([new Date(), name, latest.key, latest.date, c.text, c.grow, c.hint]);
-  return { ok: true, text: c.text, grow: c.grow, hint: c.hint, date: latest.date };
+  sh.appendRow([new Date(), name, latest.key, latest.date, c.text, c.grow, c.hint, c.notice, c.undone, c.next, c.todo, c.prev.todo, c.prev.todo ? c.prev.result : '']);
+  return cheerOut_(c, latest.date);
+}
+function cheerOut_(c, date) {
+  return { ok: true, text: c.text, grow: c.grow, hint: c.hint, notice: c.notice || '', undone: c.undone || '', next: c.next || '',
+    todo: c.todo || '', prev: c.prev && c.prev.todo ? { todo: c.prev.todo, result: c.prev.result || 'わからない' } : null, date: date };
+}
+// これまでの日報で残した「次やること」（日報のキー → 次やること）
+function todosOf_(sh, reports) {
+  var last = sh.getLastRow(), want = {}, out = {};
+  reports.forEach(function(r) { want[r.key] = true; });
+  if (last < 2) return out;
+  sh.getRange(2, 3, last - 1, CHEER_COLS - 2).getValues().forEach(function(v) {
+    if (want[String(v[0])] && String(v[8] || '').trim()) out[String(v[0])] = String(v[8]).trim();
+  });
+  return out;
 }
 
 function findCheer_(sh, key) {
   var last = sh.getLastRow();
   if (last < 2) return null;
-  var vals = sh.getRange(2, 3, last - 1, 5).getValues();   // C:キー D:日付 E:ひとこと F:のびた G:ヒント
+  var vals = sh.getRange(2, 3, last - 1, CHEER_COLS - 2).getValues();   // C:キー D:日付 E:ひとこと F:のびた G:ヒント H〜M:気づいたこと…前回の判定
   for (var i = vals.length - 1; i >= 0; i--) {
-    if (String(vals[i][0]) === key) return { text: String(vals[i][2] || ''), grow: String(vals[i][3] || ''), hint: String(vals[i][4] || '') };
+    var v = vals[i];
+    if (String(v[0]) === key) return { text: String(v[2] || ''), grow: String(v[3] || ''), hint: String(v[4] || ''),
+      notice: String(v[5] || ''), undone: String(v[6] || ''), next: String(v[7] || ''), todo: String(v[8] || ''),
+      prev: { todo: String(v[9] || ''), result: String(v[10] || '') } };
   }
   return null;
 }
@@ -585,25 +611,31 @@ function findCheer_(sh, key) {
 var CHEER_RULES =
   'あなたは営業チームのマスコット。メンバーが送った日報（とくに本人が書いた所感の文章）を、その人の過去の日報と照らし合わせて読み、本人にかける言葉を作る。\n' +
   'アプローチ・着座の件数は材料にしない。所感の中身（やったこと・うまくいったこと・困ったこと・次にやると書いたこと）を中心に考える。\n' +
-  'JSON で cheer・grow・hint の3つを返す。どれも1行。\n' +
+  'JSON で cheer・grow・notice・undone・next・todo・prevTodo・prevResult を返す。どれも1行。\n' +
   '- cheer：きょうの所感から1つ具体的に拾って、ほめる・ねぎらう（40文字以内。文の終わりまで書き切る）。\n' +
   '- grow：過去の所感とくらべて、できるようになったこと・変わったことを書く（50文字以内。文の終わりまで書き切る）。前に「次は〜する」と書いていて、きょうそれができていれば、それを拾う。なければ空文字。\n' +
-  '- hint：きょうの所感と過去の所感を照らし合わせた、総合的なアドバイスを1つ（120文字以内、1〜2文。途中で切れないよう、文の終わりまで書き切る）。\n' +
-  '  - 同じ悩み・同じ失敗がくり返されていないか、前に「次は〜する」と書いたことをやれているか、書いていることと結果が食い違っていないか、を見る。\n' +
-  '  - 見つけたことを根拠に（いつの日報に何と書いてあったか分かるように）、次に何をどうするかまで具体的に書く。ふわっとした励ましにしない。\n' +
-  '  - 食い違いや考え違いは、はっきり指摘・否定してよい（例：前は〜と書いてたけど、きょうも〜。〜したほうがいい）。\n' +
-  '  - 人を責める・ばかにする・怒る言い方はしない。\n' +
-  '  - 所感が短くて材料がないときは、獲得件数や目標までのペースから1つ書く。ほんとうに言うことがない日だけ空文字。\n' +
+  '- アドバイスは3つに分けて書く。どれも言うことがなければ空文字。ふわっとした励ましにしない。人を責める・ばかにする・怒る言い方はしない。\n' +
+  '- notice（気づいたこと）：きょうの所感と過去の所感を照らし合わせて、同じ悩み・同じ失敗のくり返しや、書いていることと結果の食い違いを指摘する（70文字以内、1文）。\n' +
+  '  - 根拠を書く。過去の日報を引くときは「11/22に」のように日付を書き、本人の文をそのまま「」でくくって引用する（言い換えた文を「」でくくらない）。\n' +
+  '  - 食い違いや考え違いは、はっきり指摘・否定してよい。\n' +
+  '- undone（やれてないこと）：これまでの日報で本人が「次は〜する」「明日は〜する」と書いたのに、きょうの所感に出てこない・できていないことを1つ（70文字以内、1文）。いつ書いたことか日付を入れる。なければ空文字。\n' +
+  '- next（次はこれ）：あしたの現場でやることを1つだけ、行動で書く。お客さまへの言い方の例を「」で1つ入れる（90文字以内、1〜2文）。所感が短くて材料がないときは、獲得件数や目標までのペースから考える。\n' +
+  '- todo：きょうの所感に本人が書いた「次は〜する」「明日は〜する」を、本人の言葉に近い形で短く（30文字以内）。書いていなければ空文字。\n' +
+  '- prevTodo と prevResult：下に【前回の次やること】があればそれを、なければ1つ前の日報の所感から本人が次にやると書いたことを prevTodo に（なければ空文字）。' +
+  'きょうの所感を読んで、それができたなら prevResult を「できた」、できていない・やっていないなら「まだ」、所感から分からないなら「わからない」にする。\n' +
   '共通のルール：\n' +
-  '- やさしい話し言葉（です・ます は使わない）。cheer と grow はひらがな多め、hint は読みやすさ優先で漢字を使ってよい。\n' +
+  '- やさしい話し言葉（です・ます は使わない）。cheer と grow はひらがな多め、notice・undone・next は読みやすさ優先で漢字を使ってよい。\n' +
   '- 数字は下に書いてあるものだけを使う。計算し直したり、作ったりしない。\n' +
   '- 日報に書いてないことを想像で足さない。\n' +
   '- ほかのメンバーの名前や数字は出さない。\n' +
-  '- 絵文字・顔文字・かぎかっこ・記号の飾りは使わない。';
+  '- 絵文字・顔文字・記号の飾りは使わない。かぎかっこ「」は、日報の文の引用と、お客さまへの言い方の例にだけ使う。';
 
-var CHEER_SCHEMA = { type: 'OBJECT', properties: { cheer: { type: 'STRING' }, grow: { type: 'STRING' }, hint: { type: 'STRING' } }, required: ['cheer', 'grow', 'hint'] };
+var CHEER_SCHEMA = { type: 'OBJECT', properties: { cheer: { type: 'STRING' }, grow: { type: 'STRING' }, notice: { type: 'STRING' }, undone: { type: 'STRING' },
+  next: { type: 'STRING' }, todo: { type: 'STRING' }, prevTodo: { type: 'STRING' }, prevResult: { type: 'STRING' } },
+  required: ['cheer', 'grow', 'notice', 'undone', 'next', 'todo', 'prevTodo', 'prevResult'] };
 
-function cheerPrompt_(name, reports, today) {
+function cheerPrompt_(name, reports, today, todos) {
+  todos = todos || {};
   var r = reports[0], lines = [];
   var note = function(x, n) { var t = String(x.note || '').replace(/\s+/g, ' ').trim(); return t ? t.slice(0, n) : '（なし）'; };
   lines.push('名前：' + name);
@@ -611,10 +643,11 @@ function cheerPrompt_(name, reports, today) {
   lines.push('所感：' + note(r, 500));
   if (reports.length > 1) {
     lines.push('【これまでの日報（新しい順）】');
-    reports.slice(1, 8).forEach(function(x) {
-      lines.push('- ' + x.date + '　' + (x.place || '-') + '　獲得' + x.gain + '件　所感：' + note(x, 200));
+    reports.slice(1, 11).forEach(function(x) {
+      lines.push('- ' + x.date + '　' + (x.place || '-') + '　獲得' + x.gain + '件　所感：' + note(x, 250) + (todos[x.key] ? '　（次やること：' + todos[x.key] + '）' : ''));
     });
   }
+  if (reports[1] && todos[reports[1].key]) lines.push('【前回の次やること】' + reports[1].date + '：' + todos[reports[1].key]);
   var w = twoWeeks_(reports, today || r.date);
   lines.push('【直近7日】' + weekLine_(w[0]));
   lines.push('【その前の7日】' + weekLine_(w[1]));
@@ -629,10 +662,11 @@ function cheerPrompt_(name, reports, today) {
   return CHEER_RULES + '\n\n' + lines.join('\n');
 }
 
-function makeCheer_(name, reports, today) {
+function makeCheer_(name, reports, today, todos) {
   var key = webhook_('GEMINI_API_KEY');
   if (!key) return null;
-  var prompt = cheerPrompt_(name, reports, today || todayYmd_());
+  todos = todos || {};
+  var prompt = cheerPrompt_(name, reports, today || todayYmd_(), todos);
   for (var i = 0; i < CHEER_MODELS.length; i++) {
     var model = CHEER_MODELS[i];
     var payload = {
@@ -650,13 +684,57 @@ function makeCheer_(name, reports, today) {
       var raw = parts.map(function(p) { return p.text || ''; }).join('');
       var obj = null;
       try { obj = JSON.parse(raw); } catch (e) { obj = { cheer: raw }; }   // JSON で返らなかったら、全体をひとことに
-      var out = { text: cleanCheer_(obj.cheer), grow: cleanCheer_(obj.grow, GROW_MAX_LEN), hint: cleanCheer_(obj.hint, HINT_MAX_LEN) };
+      var out = adviceFrom_(obj, reports, todos);
       if (out.text) return out;
     } catch (e) {
       Logger.log('Gemini ' + model + ' ' + e.message);
     }
   }
   return null;
+}
+
+// AIの答え → 画面に出す形。日報の引用は本当にその日報に書いてあるか確かめる（違えばその文を出さない）
+function adviceFrom_(obj, reports, todos) {
+  var notes = reports.map(function(r) { return { date: r.date, note: r.note }; });
+  var out = {
+    text: checkQuotes_(cleanCheer_(obj.cheer), notes),
+    grow: checkQuotes_(cleanCheer_(obj.grow, GROW_MAX_LEN), notes),
+    notice: checkQuotes_(cleanCheer_(obj.notice, NOTICE_MAX_LEN), notes),
+    undone: checkQuotes_(cleanCheer_(obj.undone, NOTICE_MAX_LEN), notes),
+    next: cleanCheer_(obj.next, NEXT_MAX_LEN),   // 「」はお客さまへの言い方の例なので確かめない
+    todo: cleanCheer_(obj.todo, TODO_MAX_LEN)
+  };
+  if (!out.text && obj.cheer) out.text = cleanCheer_(String(obj.cheer).replace(/「[^「」]*」/g, ''));   // ほめる文は、引用を外して残す
+  // 前回の次やること：残してあればそれ、なければ AI が前の所感から取り出したもの
+  var prevKey = reports[1] && reports[1].key, prevTodo = (prevKey && todos[prevKey]) || cleanCheer_(obj.prevTodo, TODO_MAX_LEN);
+  var res = String(obj.prevResult || '').trim();
+  out.prev = { todo: prevTodo, result: prevTodo ? (PREV_RESULTS.indexOf(res) >= 0 ? res : 'わからない') : '' };
+  out.hint = [out.notice, out.undone, out.next].filter(String).join(' ');   // 古い画面用
+  if (out.hint.length > HINT_MAX_LEN) out.hint = cutAtSentence_(out.hint, HINT_MAX_LEN);
+  return out;
+}
+// 引用をくらべる形（空白・句読点・記号をのぞき、全角英数を半角に）
+function quoteKey_(v) {
+  return String(v || '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
+    .replace(/[\s　、。,.，．！？!?・…「」『』（）()〜~ー－\-]/g, '').toLowerCase();
+}
+// 文の中の「」が日報の文か確かめる。日付（11/22 など）があればその日の日報で、なければどれかの日報で。
+// 見つからない引用をふくむ文は外す。短い引用（4文字未満）は確かめない。「…」で省いた引用は、残りの部分で確かめる
+function checkQuotes_(text, notes) {
+  if (!text || text.indexOf('「') < 0) return text;
+  var sentences = text.match(/[^。！？!?]+[。！？!?]?/g) || [text];
+  var kept = sentences.filter(function(sen) {
+    var quotes = sen.match(/「[^「」]+」/g);
+    if (!quotes) return true;
+    var dates = (sen.match(/(\d{1,2})\/(\d{1,2})/g) || []).map(function(d) { var p = d.split('/'); return ('0' + p[0]).slice(-2) + '-' + ('0' + p[1]).slice(-2); });
+    var pool = notes.filter(function(n) { return !dates.length || dates.some(function(d) { return String(n.date).slice(5) === d; }); })
+      .map(function(n) { return quoteKey_(n.note); }).join('|');
+    return quotes.every(function(q) {
+      var pieces = q.slice(1, -1).split(/…|\.\.\.|・・・/).map(quoteKey_).filter(function(x) { return x.length >= 4; });
+      return pieces.every(function(x) { return pool.indexOf(x) >= 0; });
+    });
+  });
+  return kept.join('').trim();
 }
 
 // 1行目だけ・かぎかっこや引用符・絵文字をのぞいて、長すぎたら切る
@@ -699,7 +777,11 @@ function testCheer() {
   if (!c) { Logger.log('（作れませんでした）'); return; }
   Logger.log('ほめる：' + c.text);
   Logger.log('のびた：' + (c.grow || '（なし）'));
-  Logger.log('ヒント：' + (c.hint || '（なし）'));
+  Logger.log('気づいたこと：' + (c.notice || '（なし）'));
+  Logger.log('やれてないこと：' + (c.undone || '（なし）'));
+  Logger.log('次はこれ：' + (c.next || '（なし）'));
+  Logger.log('次やること：' + (c.todo || '（なし）'));
+  Logger.log('前回の次やること：' + (c.prev.todo ? c.prev.todo + '（' + c.prev.result + '）' : '（なし）'));
 }
 
 // スクリプト プロパティの Webhook URL（前後の空白・改行は取る）
