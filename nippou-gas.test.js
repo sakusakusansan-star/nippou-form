@@ -107,7 +107,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-23');
+assert.strictEqual(r.version, '2026-11-24');
 assert.strictEqual(r.roster, true);
 assert.ok(r.remind && r.yearReview && r.logError, '新しい読み書きがある');
 assert.strictEqual(r.teamPass, true);
@@ -344,7 +344,13 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   assert.strictEqual(gemini.length - before, 3, '失敗したばかりなので呼ばない');
   assert.strictEqual(get({}).cheer, true);
   // 長すぎるひとことは切る・内訳の読み取り
-  assert.strictEqual(cleanCheer_('あ'.repeat(60)).length, 40);
+  assert.strictEqual(cleanCheer_('あ'.repeat(70)).length, 60);
+  // のびたも文の終わりで切る・長めまで残す
+  assert.strictEqual(cleanCheer_('前は家族に確認しなきゃと帰っちゃうことがあったけど、きょうは家族の携帯のことまで聞けたね', GROW_MAX_LEN), '前は家族に確認しなきゃと帰っちゃうことがあったけど、きょうは家族の携帯のことまで聞けたね');
+  // かぎかっこ：全体をくくっているときだけ外す
+  assert.strictEqual(cleanCheer_('「外現場で苦労した」と11/22に書いているね。', HINT_MAX_LEN), '「外現場で苦労した」と11/22に書いているね。');
+  assert.strictEqual(cleanCheer_('「すごいね」'), 'すごいね');
+  assert.strictEqual(cleanCheer_('"いいね"'), 'いいね');
   // アドバイスは文の終わりで切る（途中で「…」にしない）
   var longHint = 'い'.repeat(100) + '。' + 'う'.repeat(150) + '。';
   assert.strictEqual(cleanCheer_(longHint, HINT_MAX_LEN), 'い'.repeat(100) + '。');
