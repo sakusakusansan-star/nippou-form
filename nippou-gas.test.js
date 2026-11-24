@@ -75,7 +75,7 @@ function load() {
     fetch(url, opt) {
       if (/generativelanguage/.test(url)) {   // Gemini
         gemini.push({ url, body: JSON.parse(opt.payload) });
-        const g = geminiQueue.shift() || { text: JSON.stringify({ cheer: '「下通で キャッチ30件、すごいがんばり😊」\n（説明）', grow: '成約率 先週より 上がったね', hint: '着座に つなげると もっと伸びそう' }) };
+        const g = geminiQueue.shift() || { text: JSON.stringify({ cheer: '「下通で キャッチ30件、すごいがんばり😊」\n（説明）', grow: '成約率 先週より 上がったね', notice: '雨の日でも粘れているね。', undone: '', next: '着座に つなげる一言「1分だけいいですか」を足してみて。', todo: '着座を増やす', prevTodo: '', prevResult: 'わからない' }) };
         if (g.code) return { getResponseCode: () => g.code, getContentText: () => '{"error":{"message":"x"}}' };
         return { getResponseCode: () => 200, getContentText: () => JSON.stringify({ candidates: [{ content: { parts: [{ text: g.text }] } }] }) };
       }
@@ -107,7 +107,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-24');
+assert.strictEqual(r.version, '2026-11-25');
 assert.strictEqual(r.roster, true);
 assert.ok(r.remind && r.yearReview && r.logError, '新しい読み書きがある');
 assert.strictEqual(r.teamPass, true);
@@ -300,7 +300,8 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   assert.strictEqual(gemini.length, 0);
   props.GEMINI_API_KEY = 'AIza-test';
   c = get({ action: 'cheer', name: '山内' });
-  assert.deepStrictEqual([c.text, c.grow, c.hint], ['下通で キャッチ30件、すごいがんばり', '成約率 先週より 上がったね', '着座に つなげると もっと伸びそう'], '1行目だけ・かぎかっこと絵文字をのぞく');
+  assert.deepStrictEqual([c.text, c.grow, c.notice, c.undone, c.next, c.todo, c.prev], ['下通で キャッチ30件、すごいがんばり', '成約率 先週より 上がったね', '雨の日でも粘れているね。', '', '着座に つなげる一言「1分だけいいですか」を足してみて。', '着座を増やす', null], '1行目だけ・かぎかっこと絵文字をのぞく・3つに分ける');
+  assert.strictEqual(c.hint, '雨の日でも粘れているね。 着座に つなげる一言「1分だけいいですか」を足してみて。', '古い画面用に3つをつなげる');
   assert.strictEqual(c.date, today);
   assert.strictEqual(gemini.length, 1);
   const body = gemini[0].body, prompt = body.contents[0].parts[0].text;
@@ -313,20 +314,23 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   assert.ok(prompt.includes('【今月のMNP】3件 / 目標 5件'), prompt);
   // 目標までのペースは GAS で計算して渡す。アドバイスは具体的に・食い違いは指摘してよい
   assert.ok(/【目標までのペース】あと2件。(残り\d+日で 1日あたり[\d.]+件|きょうが月末)/.test(prompt), prompt);
-  assert.ok(prompt.includes('照らし合わせた、総合的なアドバイス') && prompt.includes('はっきり指摘・否定してよい') && prompt.includes('人を責める'), 'アドバイスのルール');
+  assert.ok(prompt.includes('notice（気づいたこと）') && prompt.includes('undone（やれてないこと）') && prompt.includes('next（次はこれ）') && prompt.includes('はっきり指摘・否定してよい') && prompt.includes('人を責める'), 'アドバイスのルール');
+  assert.ok(prompt.includes('本人の文をそのまま「」でくくって引用') && prompt.includes('言い方の例を「」で1つ'), '引用と言い方の例');
+  assert.deepStrictEqual(body.generationConfig.responseSchema.required, ['cheer', 'grow', 'notice', 'undone', 'next', 'todo', 'prevTodo', 'prevResult']);
   assert.ok(!prompt.includes('鈴木') && !prompt.includes('毛利'), 'ほかの人の日報は渡さない');
   assert.ok(gemini[0].url.includes('gemini-2.5-flash'));
   // 2回目は残したものを返す（AIは呼ばない）
   c = get({ action: 'cheer', name: '山内' });
-  assert.deepStrictEqual([c.text, c.grow, c.hint], ['下通で キャッチ30件、すごいがんばり', '成約率 先週より 上がったね', '着座に つなげると もっと伸びそう']);
+  assert.deepStrictEqual([c.text, c.grow, c.notice, c.next, c.todo], ['下通で キャッチ30件、すごいがんばり', '成約率 先週より 上がったね', '雨の日でも粘れているね。', '着座に つなげる一言「1分だけいいですか」を足してみて。', '着座を増やす']);
   assert.strictEqual(gemini.length, 1);
-  assert.deepStrictEqual(ss.getSheetByName('ひとこと')._grid[0], ['作った日時', '名前', '日報のキー', '日付', 'ひとこと', 'のびた', 'ヒント']);
+  assert.deepStrictEqual(ss.getSheetByName('ひとこと')._grid[0], ['作った日時', '名前', '日報のキー', '日付', 'ひとこと', 'のびた', 'ヒント', '気づいたこと', 'やれてないこと', '次はこれ', '次やること', '前回の次やること', '前回の判定']);
+  assert.strictEqual(ss.getSheetByName('ひとこと')._grid[1][10], '着座を増やす', '次やることを残す');
   assert.strictEqual(ss.getSheetByName('ひとこと')._grid.length, 2, '見出し＋1行');
   // 伸びもヒントもない日は空のまま
   post({ requestId: 'c5', name: '鈴木', date: today, carrier: 'Softbank', place: '下通', approaches: [], gains: [], target: 0, prev: 0, note: '' });
-  geminiQueue.push({ text: JSON.stringify({ cheer: 'きょうも おつかれさま', grow: '', hint: '' }) });
+  geminiQueue.push({ text: JSON.stringify({ cheer: 'きょうも おつかれさま', grow: '', notice: '', undone: '', next: '', todo: '', prevTodo: '', prevResult: '' }) });
   c = get({ action: 'cheer', name: '鈴木' });
-  assert.deepStrictEqual([c.text, c.grow, c.hint], ['きょうも おつかれさま', '', '']);
+  assert.deepStrictEqual([c.text, c.grow, c.hint, c.notice, c.next, c.prev], ['きょうも おつかれさま', '', '', '', '', null]);
   // JSON で返らなかったときは、全体をひとことに
   post({ requestId: 'c6', name: '福山', date: today, carrier: 'au', place: '下通', approaches: [], gains: [], target: 0, prev: 0, note: '' });
   geminiQueue.push({ text: 'ゆっくり やすんでね' });
@@ -343,6 +347,34 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   assert.strictEqual(get({ action: 'cheer', name: '毛利' }).text, '');
   assert.strictEqual(gemini.length - before, 3, '失敗したばかりなので呼ばない');
   assert.strictEqual(get({}).cheer, true);
+
+  // 次の日報：前回の「次やること」をプロンプトに渡し、できた／まだ を返す。引用は本当に日報にあるか確かめる
+  post({ requestId: 'c7', name: '山内', date: today, carrier: 'au', place: '下通', approaches: [], gains: [], target: 5, prev: 3,
+    note: '奥さまがドコモで機変しており料金が違うことに不信感を抱いた。明日は料金の違いを先に紙で見せる。' });
+  geminiQueue.push({ text: JSON.stringify({
+    cheer: '不信感にも向き合ったね',
+    grow: '',
+    notice: c.date.slice(5).replace('-', '/') + 'に「雨だったけど粘った」と書いたように粘れているね。きょうも「家族に確認すると言われて帰した」と同じ失敗だね。',
+    undone: '着座を増やすと書いていたけど、きょうは着座の話が出てこないね。',
+    next: '料金の前に「奥さまの機種と月いくら違うか」を紙に書いて見せる。',
+    todo: '料金の違いを先に紙で見せる', prevTodo: 'AIが考えた別のこと', prevResult: 'まだ' }) });
+  c = get({ action: 'cheer', name: '山内' });
+  const p2 = gemini[gemini.length - 1].body.contents[0].parts[0].text;
+  assert.ok(p2.includes('【前回の次やること】' + today + '：着座を増やす'), p2.split('名前：')[1]);
+  assert.ok(p2.includes('（次やること：着座を増やす）'), '過去の日報にも次やることを添える');
+  assert.ok(c.notice.includes('「雨だったけど粘った」') && !c.notice.includes('家族に確認'), '日報にない引用の文は外す：' + c.notice);
+  assert.strictEqual(c.next, '料金の前に「奥さまの機種と月いくら違うか」を紙に書いて見せる。', '言い方の例は確かめない');
+  assert.deepStrictEqual(c.prev, { todo: '着座を増やす', result: 'まだ' }, '残してある次やることを使う（AIが考えたものより優先）');
+  assert.strictEqual(c.todo, '料金の違いを先に紙で見せる');
+  // 判定がおかしい言葉なら「わからない」
+  const adv = adviceFrom_({ cheer: 'えらい', prevTodo: '声かけを増やす', prevResult: 'たぶん' }, [{ key: 'a', date: today, note: '' }, { key: 'b', date: old, note: '' }], {});
+  assert.deepStrictEqual(adv.prev, { todo: '声かけを増やす', result: 'わからない' });
+  // 引用の確かめ方（日付があればその日の日報で・…で省いた引用・短い引用）
+  const notes = [{ date: '2026-11-22', note: '外現場で寒さもあり、足止めに苦労してしまった。' }, { date: '2026-11-23', note: '奥さまがドコモで機変していた' }];
+  assert.strictEqual(checkQuotes_('11/22に「外現場で寒さもあり足止めに苦労してしまった」と書いているね。', notes), '11/22に「外現場で寒さもあり足止めに苦労してしまった」と書いているね。');
+  assert.strictEqual(checkQuotes_('11/23に「外現場で寒さもあり足止めに苦労してしまった」と書いているね。', notes), '', '日付の違う日報の文');
+  assert.strictEqual(checkQuotes_('「外現場で…苦労してしまった」と前に書いたね。', notes), '「外現場で…苦労してしまった」と前に書いたね。');
+  assert.strictEqual(checkQuotes_('「寒い」ね。でも「足止めがうまくいった」とあるね。次もがんばろう。', notes), '「寒い」ね。次もがんばろう。');
   // 長すぎるひとことは切る・内訳の読み取り
   assert.strictEqual(cleanCheer_('あ'.repeat(70)).length, 60);
   // のびたも文の終わりで切る・長めまで残す
