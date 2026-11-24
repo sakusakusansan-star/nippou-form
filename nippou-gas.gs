@@ -14,7 +14,7 @@
 
 var SHEET_ID = '1ffkmHDt_sz1ZQ3ZB_fXIaJeFhuW0wSI7bqwMpC9Z33g';
 // コードの版。/exec をブラウザで開くと表示されるので、再デプロイが反映されたかの確認に使う。
-var CODE_VERSION = '2026-11-25';
+var CODE_VERSION = '2026-11-26';
 var SHEET_NAME = '日報';
 // Teams自動投稿を使わない場合は空文字のままでOK（コピペ運用ならシート保存のみで十分）
 var TEAMS_WEBHOOK_URL = '';
@@ -1200,6 +1200,68 @@ function contacts_(p) {
   return { ok: true, people: contactRows_() };
 }
 
+// ═══ パートナーの課題（みんなの状況の「課題」タブ。合言葉の通行証が要る） ═══
+// 「ひとこと」シートに残したアドバイス（気づいたこと・やれてないこと・次はこれ・次やること・前回の判定）を、
+// パートナーごとに新しい順でまとめる。面談の材料にする
+var COACH_DAYS = 45, COACH_ROWS = 10;
+function coachRows_() {
+  var sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(CHEER_SHEET);
+  if (!sh || sh.getLastRow() < 2) return {};
+  var tz = sh.getParent().getSpreadsheetTimeZone();
+  var from = Utilities.formatDate(new Date(Date.now() - COACH_DAYS * 86400000), 'Asia/Tokyo', 'yyyy-MM-dd'), by = {};
+  var vals = sh.getRange(2, 1, sh.getLastRow() - 1, CHEER_COLS).getValues();
+  for (var i = vals.length - 1; i >= 0; i--) {
+    var v = vals[i], name = String(v[1] || '').trim(), date = ymd_(v[3], tz) || String(v[3] || '');
+    if (!name || !date || date < from) continue;
+    var row = { date: date, notice: String(v[7] || ''), undone: String(v[8] || ''), next: String(v[9] || ''), todo: String(v[10] || ''),
+      prevTodo: String(v[11] || ''), prevResult: String(v[12] || ''), hint: String(v[6] || '') };
+    if (!row.notice && !row.undone && !row.next && !row.todo && !row.prevTodo && !row.hint) continue;
+    by[name] = by[name] || [];
+    if (by[name].length < COACH_ROWS) by[name].push(row);
+  }
+  return by;
+}
+function coach_(p) {
+  if (!teamOk_(p.token)) return { ok: false, expired: true, error: '合言葉を確かめられませんでした。みんなの状況に入り直してください' };
+  var by = coachRows_();
+  var partners = readRoster_().people.filter(function(x) { return x.group === 'partner' && !x.hidden; }).map(function(x) { return x.name; });
+  Object.keys(by).forEach(function(n) { if (partners.indexOf(n) < 0) partners.push(n); });   // 外した人も、記録があれば出す
+  var people = partners.map(function(n) {
+    var rows = by[n] || [], c = { done: 0, notyet: 0, unknown: 0 };
+    rows.forEach(function(r) { if (r.prevTodo) c[r.prevResult === 'できた' ? 'done' : r.prevResult === 'まだ' ? 'notyet' : 'unknown']++; });
+    return { name: n, rows: rows, promise: c };
+  });
+  return { ok: true, days: COACH_DAYS, people: people };
+}
+// その人の課題を AI で短くまとめる（くり返している課題・面談で聞くこと）。同じ記録なら12時間はまとめ直さない
+function coachSum_(p) {
+  if (!teamOk_(p.token)) return { ok: false, expired: true, error: '合言葉を確かめられませんでした。みんなの状況に入り直してください' };
+  var name = String(p.name || '').trim(), rows = coachRows_()[name] || [];
+  if (!rows.length) return { ok: true, name: name, repeat: '', ask: '', empty: true };
+  var cache = CacheService.getScriptCache(), ck = 'coachSum:' + name + ':' + rows[0].date + ':' + rows.length;
+  var hit = cache.get(ck);
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  var reports = recentReports_(name, 20).filter(function(r) { return r.date >= rows[rows.length - 1].date; });
+  var lines = ['名前：' + name, '【ぼのぼのが日報に返したアドバイス（新しい順）】'];
+  rows.forEach(function(r) {
+    lines.push('- ' + r.date + '　気づいたこと：' + (r.notice || r.hint || '-') + '　やれてないこと：' + (r.undone || '-')
+      + '　次やること：' + (r.todo || '-') + (r.prevTodo ? '　前回の約束：' + r.prevTodo + '（' + (r.prevResult || 'わからない') + '）' : ''));
+  });
+  lines.push('【本人の所感（新しい順）】');
+  reports.slice(0, 10).forEach(function(r) { lines.push('- ' + r.date + '　' + String(r.note || '').replace(/\s+/g, ' ').slice(0, 200)); });
+  var prompt = 'あなたは営業チームのリーダーの補佐。下の記録から、このパートナーについて面談の前に読む短いメモを作る。\n'
+    + 'JSON で repeat・ask・good を返す。どれも1〜2文、日本語、です・ます は使わない。\n'
+    + '- repeat：くり返している課題（同じ失敗・同じ悩み・やると言ってやれていないこと）。回数や日付が分かれば入れる（60文字以内）。なければ空文字。\n'
+    + '- ask：面談で本人に聞くとよい質問を1つ（50文字以内）。責める聞き方にしない。\n'
+    + '- good：この期間にできるようになったこと（40文字以内）。なければ空文字。\n'
+    + '記録にないことを想像で足さない。数字は記録にあるものだけ。ほかの人の名前は出さない。\n\n' + lines.join('\n');
+  var obj = gemini_(prompt, { type: 'OBJECT', properties: { repeat: { type: 'STRING' }, ask: { type: 'STRING' }, good: { type: 'STRING' } }, required: ['repeat', 'ask', 'good'] }, 500);
+  if (!obj) return { ok: false, error: 'AIにつながりませんでした。少しおいて、もう一度押してください' };
+  var out = { ok: true, name: name, repeat: cleanCheer_(obj.repeat, 100), ask: cleanCheer_(obj.ask, 80), good: cleanCheer_(obj.good, 70), from: rows[rows.length - 1].date, to: rows[0].date };
+  try { cache.put(ck, JSON.stringify(out), 12 * 3600); } catch (e) {}
+  return out;
+}
+
 function doGet(e) {
   var q = (e && e.parameter) || {};
   try {
@@ -1213,15 +1275,16 @@ function doGet(e) {
   } catch (err) {
     return json_({ ok: false, error: String(err) });
   }
-  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true, remind: true, yearReview: true, logError: true, roster: true, contacts: true, master: true });
+  return json_({ ok: true, status: 'ready', version: CODE_VERSION, dedupe: true, gain: true, teamPass: true, cheer: true, remind: true, yearReview: true, logError: true, roster: true, contacts: true, master: true, coach: true });
 }
 
 function doPost(e) {
-  // ロックのいらないもの（不具合の記録・締めの声かけ・不具合の一覧）は、日報の送信を待たせないよう先に返す
+  // ロックのいらないもの（不具合の記録・締めの声かけ・不具合の一覧・課題の読み出し）は、日報の送信を待たせないよう先に返す
   var p0 = null;
   try { p0 = JSON.parse(e.postData.contents); } catch (ignore) {}
-  if (p0 && (p0.action === 'logError' || p0.action === 'remind' || p0.action === 'errors')) {
-    try { return json_(p0.action === 'logError' ? logError_(p0) : p0.action === 'remind' ? remind_(p0) : errors_(p0)); }
+  var free = { logError: logError_, remind: remind_, errors: errors_, coach: coach_, coachSum: coachSum_ };
+  if (p0 && free.hasOwnProperty(p0.action)) {
+    try { return json_(free[p0.action](p0)); }
     catch (err) { return json_({ ok: false, error: String(err) }); }
   }
   var lock = LockService.getScriptLock();
