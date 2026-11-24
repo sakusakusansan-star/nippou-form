@@ -107,7 +107,7 @@ assert.strictEqual(mnpCount_([{ label: 'SMNP', count: 2 }, { label: 'YMNP', coun
 
 // ─── 読み込み（未設定のとき）───
 let r = get({});
-assert.strictEqual(r.version, '2026-11-25');
+assert.strictEqual(r.version, '2026-11-26');
 assert.strictEqual(r.roster, true);
 assert.ok(r.remind && r.yearReview && r.logError, '新しい読み書きがある');
 assert.strictEqual(r.teamPass, true);
@@ -375,6 +375,32 @@ assert.strictEqual(r.locked, true, '10回まちがえたら正しくてもしば
   assert.strictEqual(checkQuotes_('11/23に「外現場で寒さもあり足止めに苦労してしまった」と書いているね。', notes), '', '日付の違う日報の文');
   assert.strictEqual(checkQuotes_('「外現場で…苦労してしまった」と前に書いたね。', notes), '「外現場で…苦労してしまった」と前に書いたね。');
   assert.strictEqual(checkQuotes_('「寒い」ね。でも「足止めがうまくいった」とあるね。次もがんばろう。', notes), '「寒い」ね。次もがんばろう。');
+  // ─── みんなの状況の「課題」：パートナーごとのアドバイスの記録（通行証が要る・ロックを使わない） ───
+  const CT = teamToken_(webhook_('TEAM_PASS'));
+  assert.strictEqual(post({ action: 'coach', token: 'nise' }).expired, true);
+  const co = post({ action: 'coach', token: CT });
+  assert.strictEqual(co.ok, true);
+  const yam = co.people.find(x => x.name === '山内');
+  assert.ok(yam, JSON.stringify(co.people.map(x => x.name)));
+  assert.strictEqual(yam.rows.length, 2, '山内の2回分');
+  assert.strictEqual(yam.rows[0].todo, '料金の違いを先に紙で見せる', '新しい順');
+  assert.deepStrictEqual([yam.rows[0].prevTodo, yam.rows[0].prevResult], ['着座を増やす', 'まだ']);
+  assert.deepStrictEqual(yam.promise, { done: 0, notyet: 1, unknown: 0 });
+  assert.ok(co.people.find(x => x.name === '鈴木' && x.rows.length === 0), '記録のないパートナーも出す（中身なしの行は数えない）');
+  assert.ok(!co.people.find(x => x.name === '福山'), '社員は出さない');
+  // AIのまとめ（同じ記録なら2回目は AI を呼ばない）
+  geminiQueue.push({ text: JSON.stringify({ repeat: '家族の確認で帰られるのが続いている', ask: '家族が来ていないとき、どう声をかけている？', good: '' }) });
+  const g0 = gemini.length;
+  let cs = post({ action: 'coachSum', token: CT, name: '山内' });
+  assert.deepStrictEqual([cs.ok, cs.repeat, cs.ask, cs.good], [true, '家族の確認で帰られるのが続いている', '家族が来ていないとき、どう声をかけている？', '']);
+  const sp = gemini[gemini.length - 1].body.contents[0].parts[0].text;
+  assert.ok(sp.includes('前回の約束：着座を増やす（まだ）') && sp.includes('【本人の所感（新しい順）】') && !sp.includes('鈴木'), sp);
+  cs = post({ action: 'coachSum', token: CT, name: '山内' });
+  assert.strictEqual(gemini.length - g0, 1, '12時間は覚えている');
+  assert.strictEqual(post({ action: 'coachSum', token: CT, name: '鈴木' }).empty, true, '記録がなければ AI を呼ばない');
+  assert.strictEqual(gemini.length - g0, 1);
+  assert.strictEqual(get({}).coach, true);
+
   // 長すぎるひとことは切る・内訳の読み取り
   assert.strictEqual(cleanCheer_('あ'.repeat(70)).length, 60);
   // のびたも文の終わりで切る・長めまで残す
